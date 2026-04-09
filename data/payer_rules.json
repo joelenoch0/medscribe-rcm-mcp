@@ -1,0 +1,23 @@
+{
+  "rules_engine_version": "2026-Q2",
+  "last_updated": "2026-04-01",
+  "payer_overrides": {
+    "Medicare": {
+      "preferred_specificity": "high",
+      "nos_nec_penalty": true,
+      "notes": "Medicare strictly denies vague NOS/NEC for medical necessity"
+    },
+    "Aetna": {
+      "preferred_specificity": "medium",
+      "nos_nec_penalty": true
+    },
+    "UnitedHealthcare": {
+      "preferred_specificity": "high",
+      "nos_nec_penalty": true
+    }
+  },
+  "default": {
+    "preferred_specificity": "high",
+    "nos_nec_penalty": true
+  }
+}
