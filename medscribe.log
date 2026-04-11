@@ -1,0 +1,19 @@
+[04/11/26 10:00:43] INFO     Starting MCP server 'medscribe_rcm_mcp' with transport 'stdio'                                       transport.py:209
+[04/11/26 13:12:08] INFO     Starting MCP server               transport.py:209
+                             'medscribe_rcm_mcp' with                          
+                             transport 'stdio'                                 
+2026-04-11 13:12:08,996 INFO mcp.server.lowlevel.server: Processing request of type ListToolsRequest
+2026-04-11 13:12:08,999 INFO mcp.server.lowlevel.server: Processing request of type ListPromptsRequest
+2026-04-11 13:12:09,001 INFO mcp.server.lowlevel.server: Processing request of type ListResourcesRequest
+[04/11/26 13:27:34] INFO     Starting MCP server               transport.py:209
+                             'medscribe_rcm_mcp' with                          
+                             transport 'stdio'                                 
+2026-04-11 13:27:34,808 INFO mcp.server.lowlevel.server: Processing request of type ListToolsRequest
+2026-04-11 13:27:34,813 INFO mcp.server.lowlevel.server: Processing request of type ListPromptsRequest
+2026-04-11 13:27:34,815 INFO mcp.server.lowlevel.server: Processing request of type ListResourcesRequest
+[04/11/26 13:56:58] INFO     Starting MCP server               transport.py:209
+                             'medscribe_rcm_mcp' with                          
+                             transport 'stdio'                                 
+2026-04-11 13:56:58,663 INFO mcp.server.lowlevel.server: Processing request of type ListToolsRequest
+2026-04-11 13:56:58,667 INFO mcp.server.lowlevel.server: Processing request of type ListPromptsRequest
+2026-04-11 13:56:58,669 INFO mcp.server.lowlevel.server: Processing request of type ListResourcesRequest
