@@ -94,6 +94,13 @@ mcp = FastMCP(
     ),
 )
 
+
+# Health route for UptimeRobot
+@mcp.custom_route('/health', methods=['GET'])
+async def health_route(request):
+    from starlette.responses import JSONResponse
+    return JSONResponse({'status': 'ok'})
+
 # ─────────────────────────────────────────────────────────────────────────────
 # PHI Redaction (Presidio + spaCy + regex fallback)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1093,8 +1100,8 @@ if __name__ == "__main__":
         mcp.run(show_banner=False)
 
 
-# Health route for UptimeRobot
-@mcp.custom_route('/health', methods=['GET'])
-async def health_route(request):
-    from starlette.responses import JSONResponse
-    return JSONResponse({'status': 'ok'})
+
+
+
+
+
