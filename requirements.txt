@@ -1,3 +1,9 @@
 mcp[cli]
 
 fastmcp
+
+presidio-analyzer
+presidio-anonymizer
+spacy
+supabase
+cachetools
