@@ -94,37 +94,24 @@ mcp = FastMCP(
     ),
 )
 
-
-# Health route for UptimeRobot
-@mcp.custom_route('/health', methods=['GET'])
-async def health_route(request):
-    from starlette.responses import JSONResponse
-    return JSONResponse({'status': 'ok'})
-
 # ─────────────────────────────────────────────────────────────────────────────
 # PHI Redaction (Presidio + spaCy + regex fallback)
 # ─────────────────────────────────────────────────────────────────────────────
 
-_PRESIDIO_AVAILABLE = False
-_nlp = None
-_analyzer = None
-_anonymizer = None
+try:
+    from presidio_analyzer import AnalyzerEngine
+    from presidio_anonymizer import AnonymizerEngine
+    import spacy
 
-def _load_presidio():
-    global _PRESIDIO_AVAILABLE, _nlp, _analyzer, _anonymizer
-    if _PRESIDIO_AVAILABLE:
-        return
-    try:
-        from presidio_analyzer import AnalyzerEngine
-        from presidio_anonymizer import AnonymizerEngine
-        import spacy
-        _nlp = spacy.load("en_core_web_sm")
-        _analyzer = AnalyzerEngine()
-        _anonymizer = AnonymizerEngine()
-        _PRESIDIO_AVAILABLE = True
-        logger.info("Presidio + spaCy loaded ✓")
-    except Exception as e:
-        logger.warning("Presidio unavailable — regex fallback: %s", e)
+    _nlp = spacy.load("en_core_web_sm")
+    _analyzer = AnalyzerEngine()
+    _anonymizer = AnonymizerEngine()
+    _PRESIDIO_AVAILABLE = True
+    logger.info("Presidio + spaCy loaded ✓")
+except Exception as _presidio_err:
+    _PRESIDIO_AVAILABLE = False
+    _nlp = None
+    logger.warning("Presidio/spaCy unavailable — regex fallback active: %s", _presidio_err)
 
 _PHI_ENTITIES = [
     "PERSON", "DATE_TIME", "PHONE_NUMBER", "EMAIL_ADDRESS",
@@ -134,7 +121,7 @@ _PHI_ENTITIES = [
 
 
 def redact_phi(text: str) -> str:
-    _load_presidio()
+    """Redact PHI. Presidio is primary; regex is emergency fallback."""
     if _PRESIDIO_AVAILABLE:
         try:
             results = _analyzer.analyze(text=text, entities=_PHI_ENTITIES, language="en")
@@ -623,8 +610,9 @@ async def get_health(compact: bool = False) -> str:
         sb = _get_supabase()
         sb.table("consent_registry").select("patient_token_hash").limit(1).execute()
         supabase_ok = True
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.warning(f"Supabase connection failed: {e}")
 
     resp = HealthResponse(
         status="ok",
@@ -1097,11 +1085,4 @@ if __name__ == "__main__":
         mcp.run(transport="streamable-http", host="0.0.0.0", port=port)
     else:
         logger.info("Starting MedScribe RCM MCP — stdio transport")
-        mcp.run(show_banner=False)
-
-
-
-
-
-
-
+        mcp.run()
