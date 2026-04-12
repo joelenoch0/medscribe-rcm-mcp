@@ -1077,6 +1077,11 @@ async def analyze_denial_and_appeal(
 # Entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
+@mcp.custom_route("/health", methods=["GET", "HEAD"])
+async def health_check(request):
+    from starlette.responses import JSONResponse
+    return JSONResponse({"status": "ok"})
+
 if __name__ == "__main__":
     import sys
     if "--http" in sys.argv:
