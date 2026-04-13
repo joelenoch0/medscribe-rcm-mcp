@@ -3,7 +3,7 @@ from presidio_anonymizer import AnonymizerEngine
 
 from presidio_analyzer.nlp_engine import NlpEngineProvider
 _config = {"nlp_engine_name": "spacy", "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}]}
-_provider = NlpEngineProvider(nlp_configuration=_config)
+_provider = NlpEngineProvider(nlp_configuration=_config)_nlp_engine = _provider.create_engine()
 _nlp_engine = _provider.create_engine()
 analyzer = AnalyzerEngine(nlp_engine=_nlp_engine)
 anonymizer = AnonymizerEngine()
