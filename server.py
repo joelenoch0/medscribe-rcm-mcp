@@ -104,7 +104,7 @@ try:
     import spacy
 
     _nlp = spacy.load("en_core_web_sm")
-    __analyzer = AnalyzerEngine()
+    __analyzer = AnalyzerEngine(nlp_engine=NlpEngineProvider(nlp_configuration={"nlp_engine_name": "spacy", "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}]}).create_engine())
     _anonymizer = AnonymizerEngine()
     _PRESIDIO_AVAILABLE = True
     logger.info("Presidio + spaCy loaded ✓")
