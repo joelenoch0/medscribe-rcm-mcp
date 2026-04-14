@@ -94,69 +94,30 @@ mcp = FastMCP(
     ),
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PHI Redaction (Presidio + spaCy + regex fallback)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# PHI Redaction - delegated to phi_guard.py (production Presidio layer)
+# -----------------------------------------------------------------------------
 
-try:
-    from presidio_analyzer import AnalyzerEngine
-    from presidio_analyzer.nlp_engine import NlpEngineProvider
-    from presidio_anonymizer import AnonymizerEngine
-    import spacy
-
-    _nlp = spacy.load("en_core_web_sm")
-    __analyzer = AnalyzerEngine(nlp_engine=NlpEngineProvider(nlp_configuration={"nlp_engine_name": "spacy", "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}]}).create_engine())
-    _anonymizer = AnonymizerEngine()
-    _PRESIDIO_AVAILABLE = True
-    logger.info("Presidio + spaCy loaded ✓")
-except Exception as _presidio_err:
-    _PRESIDIO_AVAILABLE = False
-    _nlp = None
-    logger.warning("Presidio/spaCy unavailable — regex fallback active: %s", _presidio_err)
-
-_PHI_ENTITIES = [
-    "PERSON", "DATE_TIME", "PHONE_NUMBER", "EMAIL_ADDRESS",
-    "US_SSN", "US_DRIVER_LICENSE", "MEDICAL_LICENSE",
-    "IP_ADDRESS", "URL", "LOCATION", "NRP",
-]
-
-
-def redact_phi(text: str) -> str:
-    """Redact PHI. Presidio is primary; regex is emergency fallback."""
-    if _PRESIDIO_AVAILABLE:
-        try:
-            results = _analyzer.analyze(text=text, entities=_PHI_ENTITIES, language="en")
-            return _anonymizer.anonymize(text=text, analyzer_results=results).text
-        except Exception as e:
-            logger.warning("Presidio redaction failed (%s) — falling back to regex", e)
-
-    # Regex fallback
-    text = re.sub(r"\b\d{3}-\d{2}-\d{4}\b", "<SSN>", text)
-    text = re.sub(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b", "<DATE>", text)
-    text = re.sub(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b", "<NAME>", text)
-    text = re.sub(r"\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b", "<PHONE>", text)
-    text = re.sub(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", "<EMAIL>", text)
-    return text
+from phi_guard import redact_phi, redact_phi_output, PhiGuardError
 
 
 def spacy_preprocess(text: str) -> str:
     """
     Normalise poor transcription quality before LLM/NLP processing.
-    Fixes common dictation artefacts: stray punctuation, double spaces,
-    run-on sentences missing periods, all-caps segments.
     PHI must be redacted BEFORE this function is called.
-    Regex normalisation always runs; spaCy tokenisation added when available.
     """
-    # Always apply basic normalisation
-    text = re.sub(r"[ \t]{2,}", " ", text)           # collapse whitespace
-    text = re.sub(r"\.{2,}", ".", text)               # collapse ellipsis
-    text = re.sub(r"\b([A-Z]{4,})\b",                # soften ALL-CAPS words
-                  lambda m: m.group(1).capitalize(), text)
+    import re as _re
+    import spacy as _spacy
+    text = _re.sub(r"[ \t]{2,}", " ", text)
+    text = _re.sub(r"\.{2,}", ".", text)
+    text = _re.sub(r"\b([A-Z]{4,})\b", lambda m: m.group(1).capitalize(), text)
     text = text.strip()
-    # Additional spaCy-based normalisation when model is available
-    if _nlp:
+    try:
+        _nlp = _spacy.load("en_core_web_sm")
         doc = _nlp(text)
         text = " ".join(token.text for token in doc)
+    except Exception:
+        pass
     return text
 
 
