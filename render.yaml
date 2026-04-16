@@ -1,0 +1,45 @@
+services:
+  - type: web
+    name: medscribe-rcm-mcp
+    runtime: python
+    region: oregon           # US-West — closest to CMS.gov data sources
+    plan: free               # 512 MB RAM, spins down after 15 min inactivity
+                             # UptimeRobot pings /health every 5 min to prevent spin-down
+
+    buildCommand: |
+      pip install uv &&
+      uv sync &&
+      python -m spacy download en_core_web_sm
+
+    startCommand: >
+      uv run fastmcp run server.py
+      --transport streamable-http
+      --host 0.0.0.0
+      --port $PORT
+
+    healthCheckPath: /health
+
+    envVars:
+      # ── Required — set these in Render dashboard under Environment ─────────
+      - key: WORKOS_JWKS_URI
+        sync: false          # paste value in Render dashboard — never commit to Git
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+      # ── Optional overrides ────────────────────────────────────────────────
+      - key: MEDSCRIBE_RULES_ENGINE_VERSION
+        value: "2026-Q2"
+      - key: MEDSCRIBE_NOS_NEC_VERSION
+        value: "2026-Q2"
+      - key: PYTHONDONTWRITEBYTECODE
+        value: "1"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+      # ── 42 CFR Part 2 enforcement flag (never disable in production) ──────
+      - key: ENFORCE_42CFR_PART2
+        value: "true"
