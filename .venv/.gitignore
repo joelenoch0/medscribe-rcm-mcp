@@ -1,0 +1,14 @@
+# Data
+data/
+*.json
+
+# Logs
+*.log
+
+# OS
+desktop.ini
+
+# Env
+.venv/
+__pycache__/
+.vscode/
