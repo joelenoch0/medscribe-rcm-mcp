@@ -324,7 +324,8 @@ def _verify_consent(patient_token: str, payer: str, tool: str) -> Tuple[bool, st
 
     except Exception as exc:
         log.error("Consent middleware error: %s", exc)
-        return False, f"consent_check_failed: {type(exc).__name__}: {str(exc)[:120]}"
+        msg = getattr(exc, 'message', None) or getattr(exc, 'details', None) or getattr(exc, 'args', [''])[0]
+        return False, f"consent_check_failed: {type(exc).__name__}: {str(msg)[:120]}"
 
 
 def _audit_log(tool: str, patient_token: str, payer: str, trace_id: str, status: str) -> None:
