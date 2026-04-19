@@ -82,7 +82,7 @@ PAYER_RULES: Dict[str, Any] = _load_payer_rules()
 
 # Supabase â€” free tier, NON-PHI metadata only
 _SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-_SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY", "")
+_SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY", os.getenv("SUPABASE_ANON_KEY", ""))
 SUPABASE: Optional[Client] = None
 if _SUPABASE_URL and _SUPABASE_KEY:
     try:
@@ -294,14 +294,18 @@ def _verify_consent(patient_token: str, payer: str, tool: str) -> Tuple[bool, st
         return True, "soft_approved_dev_mode"
 
     try:
-        resp = (
-            SUPABASE.table("consent_registry")
-            .select("consent_granted, consent_type, expiry")
-            .eq("patient_token", patient_token)
-            .eq("active", True)
-            .limit(1)
-            .execute()
-        )
+        import concurrent.futures
+        def _query():
+            return (
+                SUPABASE.table("consent_registry")
+                .select("consent_granted, consent_type, expiry")
+                .eq("patient_token", patient_token)
+                .eq("active", True)
+                .limit(1)
+                .execute()
+            )
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            resp = pool.submit(_query).result(timeout=5)
         rows = resp.data or []
         if not rows:
             return False, f"no_active_consent_record_for_token_{patient_token[:8]}***"
