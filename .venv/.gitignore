@@ -1,27 +1,26 @@
-# Secrets
-.env
-.env.*
+# Virtual env
+.venv/
+venv/
 
-# Python
+# Python cache
 __pycache__/
 *.pyc
-*.pyo
-
-# Virtual environments
-venv/
-.venv/
 
 # Logs
 *.log
 
-# Data (important for your MCP healthcare project)
+# Data (IMPORTANT for your project)
 *.json
 data/
-datasets/
 
-# OS files
-.DS_Store
-Thumbs.db
+# Backups
+*backup*.py
+
+# Lock files
+uv.lock
 
 # VS Code
 .vscode/
+
+# Secrets
+.env
