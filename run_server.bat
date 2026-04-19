@@ -1,0 +1,7 @@
+@echo off
+cd /d C:\Users\DELL\medscribe-rcm-mcp
+set SUPABASE_URL=https://oopddsozbgpgfgekctoe.supabase.co
+set SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9vcGRkc296YmdwZ2ZnZWtjdG9lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1NzcwMDQsImV4cCI6MjA5MTE1MzAwNH0.WUGovZd9rt0AlVVE1yXdqcA--vQQ_oOZvrQej28YkjYs
+set GOOGLE_CLOUD_PROJECT=
+set MEDGEMMA_API_KEY=
+.venv\Scripts\python.exe server.py
