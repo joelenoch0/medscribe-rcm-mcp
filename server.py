@@ -1119,6 +1119,6 @@ async def health_check(request):
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
 if __name__ == "__main__":
-    mcp.run("streamable-http")          # stdio transport â€” compatible with Claude Desktop
+    mcp.run()          # stdio transport â€” compatible with Claude Desktop
 
 

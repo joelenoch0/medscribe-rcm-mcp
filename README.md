@@ -1,128 +1,99 @@
-# Healthcare Billing Codes MCP Server
+# MedScribe RCM-MCP
+**The only open-source FastMCP server that chains the complete 
+Healthcare RCM pipeline: Transcription → Coding → Billing 
+Validation → Denial Resolution.**
 
-An MCP (Model Context Protocol) server that provides lookup and search capabilities for medical billing codes including CPT, ICD-10, and HCPCS codes.
+Maintained by [MedScribe Professional Resources](https://medscribepro.in)  
+Contact: contact@medscribepro.in  
+License: Apache 2.0 (see LICENSE + NOTICE)
 
-## Features
+---
 
-- **Lookup billing codes**: Get detailed information about specific CPT, ICD-10, or HCPCS codes
-- **Search by description**: Find codes by searching keywords in descriptions
-- **Category information**: View code categories and typical reimbursement rates (where applicable)
+## ⚠️ LEGAL & COMPLIANCE NOTICE
 
-## Tools
+This server processes clinical data. Before deployment:
+1. You must configure OAuth 2.1 authentication (server 
+   refuses to start without it — by design)
+2. You must NOT store PHI in any database (process in 
+   memory only)
+3. If processing SUD records: patient consent under 42 CFR 
+   Part 2 is legally required (already enforced by the 
+   built-in ConsentMiddleware)
+4. You must sign a BAA with any cloud provider before 
+   storing ePHI (Supabase free tier does not cover PHI)
 
-### `lookup_billing_code`
-Look up information about a specific medical billing code.
+Running this server without authentication is a HIPAA 
+violation and violates 42 CFR Part 2.
 
-**Parameters:**
-- `code_type` (string, required): Type of code - "CPT", "ICD10", or "HCPCS"
-- `code` (string, required): The billing code to look up
+---
 
-**Example:**
-```json
-{
-  "code_type": "CPT",
-  "code": "99213"
-}
-```
+## What This Server Does (Value Addition)
 
-### `search_codes_by_description`
-Search for billing codes by keyword in description.
+No other open-source MCP server chains these four steps:
 
-**Parameters:**
-- `keyword` (string, required): Keyword to search for
-- `code_type` (string, optional): Filter by code type or "ALL" (default: "ALL")
+| Tool | What It Does | Why It Matters |
+|------|-------------|----------------|
+| extract_codes_from_note | Extracts ICD-10/HCPCS from clinical notes. PHI redacted via Microsoft Presidio before any processing. | No PHI leaves the note unredacted |
+| suggest_codes_with_context | Suggests codes + **flags NOS codes** before they trigger medical necessity denials | Prevents the most common denial type |
+| validate_claim_bundle | Runs CMS NCCI/MUE edits. Returns risk score 0-100. | Clean claim before submission |
+| analyze_denial_and_appeal | Root-causes denials using CARC/RARC + CMS-0057-F. Generates 72hr/7-day appeal templates. | Recovers denied revenue |
 
-**Example:**
-```json
-{
-  "keyword": "diabetes",
-  "code_type": "ICD10"
-}
-```
+---
 
-## Installation
+## Security Architecture
 
-### Prerequisites
-- Python 3.10 or higher
-- pip
+- **PHI never stored** — processed in-memory only
+- **OAuth 2.1 mandatory** — server fails to start without it
+- **42 CFR Part 2 consent gate** — SUD data requires 
+  patient consent on file before any tool runs
+- **Presidio PHI redaction** — on both INPUT and OUTPUT
+- **Immutable audit logs** — tool name + timestamp only
+- **Metadata lineage** — every response includes 
+  rules_engine_version and source_uri
 
-### Setup
+---
 
-1. Clone this repository:
-```bash
-git clone https://github.com/yourusername/healthcare-billing-codes.git
-cd healthcare-billing-codes
-```
+## Free vs Paid Tier
 
-2. Install dependencies:
-```bash
-pip install -e .
-```
+| Feature | Free (Open Source) | Paid ($29/month) |
+|---------|-------------------|-----------------|
+| All 4 RCM tools | ✅ | ✅ |
+| ICD-10-CM + HCPCS | ✅ | ✅ |
+| CPT descriptions | Placeholder only | ✅ (AMA licensed) |
+| Rate limit | 20 calls/day | Unlimited |
+| NOS code trapping | ✅ | ✅ |
+| NCCI/MUE scrubbing | ✅ | ✅ |
+| 42 CFR Part 2 consent | ✅ | ✅ |
+| Support | GitHub Issues | contact@medscribepro.in |
 
-3. Run the server:
-```bash
-python server.py
-```
+**Start free. Upgrade when you're generating revenue.**
 
-## Usage with Claude Desktop
+---
 
-Add to your Claude Desktop config file (`claude_desktop_config.json`):
+## Trade Secrets
 
-```json
-{
-  "mcpServers": {
-    "healthcare-billing-codes": {
-      "command": "python",
-      "args": ["/path/to/healthcare-billing-codes/server.py"]
-    }
-  }
-}
-```
+See NOTICE file for full declaration.
 
-## Extending the Database
+The open-source framework is Apache 2.0. The Rules Engine 
+(NOS sentinel list, appeal templates, payer benchmarks) is 
+a proprietary trade secret delivered only via paid API.
 
-The current implementation includes a small sample database. To add more codes:
+---
 
-1. Edit the `BILLING_CODES` dictionary in `server.py`
-2. Or connect to an external database/API in the lookup functions
+## Data Sources (All Free, Public Domain)
 
-### Example: Adding a new CPT code
-```python
-"99215": {
-    "description": "Office visit, established patient, 40-54 minutes",
-    "category": "Evaluation and Management",
-    "typical_reimbursement": "$185-$260"
-}
-```
+- ICD-10-CM: CDC.gov (public domain)
+- HCPCS Level II: CMS.gov (public domain)
+- NCCI Edits: CMS.gov quarterly (public domain)
+- CARC/RARC Codes: CMS.gov (public domain)
+- CMS-0057-F Metrics: Payer public websites (mandated)
+- CPT: AMA licensed (paid tier only)
 
-## Data Sources (for expansion)
+---
 
-To build a complete database, consider these public sources:
-- **CMS.gov**: Medicare fee schedules
-- **AMA CPT**: CPT code descriptions (requires license for commercial use)
-- **CDC ICD-10**: Free ICD-10 code database
-- **CMS HCPCS**: HCPCS code lists
+## Contact & Business
 
-## Legal Disclaimer
-
-This tool is provided for reference purposes only. Users must verify all billing codes with official sources before use in actual medical billing. The authors assume no liability for billing errors or claim denials resulting from use of this tool.
-
-## License
-
-MIT License - See LICENSE file for details
-
-## Contributing
-
-Contributions welcome! Please submit pull requests or open issues on GitHub.
-
-## Monetization Options
-
-This server can be monetized as:
-1. **Freemium model**: Basic codes free, comprehensive database paid
-2. **API access**: Charge per lookup for commercial users
-3. **White-label licensing**: License to EHR vendors or billing companies
-4. **Data partnerships**: Partner with coding databases for official data
-
-## Contact
-
-For commercial licensing or data partnerships: your-email@example.com
+MedScribe Professional Resources  
+Warangal, Telangana, India  
+contact@medscribepro.in  
+GitHub: github.com/joelenoch0/medscribe-rcm-mcp
