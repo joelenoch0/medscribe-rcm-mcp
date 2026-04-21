@@ -59,9 +59,18 @@ except OSError:
 # Presidio â€” lazy-loaded on first use to avoid Claude Desktop startup timeout
 # Force en_core_web_sm to avoid auto-downloading the 400MB lg model
 from presidio_analyzer.nlp_engine import NlpEngineProvider
-_NLP_CONFIG = {"nlp_engine_name": "spacy", "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}]}
-PRESIDIO_ANALYZER  = AnalyzerEngine(nlp_engine=NlpEngineProvider(nlp_configuration=_NLP_CONFIG).create_engine())
-PRESIDIO_ANONYMIZER = AnonymizerEngine()
+_PRESIDIO_ANALYZER  = None
+_PRESIDIO_ANONYMIZER = None
+
+def _get_presidio():
+    global _PRESIDIO_ANALYZER, _PRESIDIO_ANONYMIZER
+    if _PRESIDIO_ANALYZER is None:
+        _NLP_CONFIG = {"nlp_engine_name": "spacy", "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}]}
+        analyzer = AnalyzerEngine(nlp_engine=NlpEngineProvider(nlp_configuration=_NLP_CONFIG).create_engine())
+        analyzer.registry.remove_recognizer("MedicalLicenseRecognizer")
+        _PRESIDIO_ANALYZER  = analyzer
+        _PRESIDIO_ANONYMIZER = AnonymizerEngine()
+    return _PRESIDIO_ANALYZER, _PRESIDIO_ANONYMIZER
 
 # Payer rules â€” loaded once, cached, never stores PHI
 @lru_cache(maxsize=1)
@@ -263,6 +272,7 @@ class AnalyzeDenialInput(BaseModel):
 # SHARED PIPELINE HELPERS
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+
 def _meta(tool: str, payer: str = "", extra: Dict[str, Any] | None = None) -> Dict[str, Any]:
     """Build a PHI-free metadata lineage block attached to every response."""
     m: Dict[str, Any] = {
@@ -271,7 +281,12 @@ def _meta(tool: str, payer: str = "", extra: Dict[str, Any] | None = None) -> Di
         "version":    "1.0.0",
         "timestamp":  datetime.now(timezone.utc).isoformat(),
         "trace_id":   str(uuid.uuid4()),
-        "compliance": ["HIPAA", "42_CFR_Part_2"],
+        "compliance":         ["HIPAA", "42_CFR_Part_2"],
+        "rules_engine_version": "2026-Q1",
+        "cms_ncci_release":   "2026-Q1-April",
+        "icd10_fiscal_year":  "FY2026",
+        "carc_version":       "2026-April",
+        "source_uri":         "https://www.cms.gov/medicare/coding-billing/place-of-service-codes/code-sets",
     }
     if payer:
         m["payer"] = payer
@@ -285,8 +300,9 @@ def _redact_phi(text: str) -> str:
     if not text or not text.strip():
         return text
     try:
-        results = PRESIDIO_ANALYZER.analyze(text=text, language="en")
-        anonymized = PRESIDIO_ANONYMIZER.anonymize(text=text, analyzer_results=results)
+        analyzer, anonymizer = _get_presidio()
+        results = analyzer.analyze(text=text, language="en")
+        anonymized = anonymizer.anonymize(text=text, analyzer_results=results)
         return anonymized.text
     except Exception as exc:
         log.error("Presidio redaction error (returning REDACTED_ALL): %s", exc)
@@ -602,13 +618,13 @@ async def extract_codes_from_note(params: ExtractCodesInput) -> str:
         _audit_log("extract_codes_from_note", params.patient_token, "general", meta["trace_id"], f"BLOCKED:{reason}")
         return json.dumps({"error": "consent_denied", "reason": reason, "meta": meta}, indent=2)
 
-    # â”€â”€ STEP 2: PHI Redaction â€” INPUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── STEP 2: PHI Redaction – INPUT ──────────────────────────────────────────────
     redacted_note = _redact_phi(params.note_text)
 
-    # â”€â”€ STEP 3: spaCy Preprocessing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── STEP 3: spaCy Preprocessing ────────────────────────────────────────────────
     clean_note = _preprocess(redacted_note)
 
-    # â”€â”€ STEP 4: Core Logic â€” Code Extraction â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── STEP 4: Core Logic – Code Extraction ────────────────────────────────────────
     # Pattern-based extraction from normalized clinical text.
     # In production: integrate a medical NLP model (cTAKES, MedSpaCy, AWS Comprehend Medical).
     icd10_pattern = re.compile(
@@ -719,10 +735,10 @@ async def suggest_codes_with_context(params: SuggestCodesInput) -> str:
     # Extract codes from the note text for sentinel cross-reference
     icd_in_note = list(set(
         m.upper()
-        for m in re.findall(r"\b([A-TV-Z][0-9]{2}(?:\.[0-9A-Z]{1,4})?)\b", clean_note, re.IGNORECASE)
+        for m in re.findall(r"\b([A-TV-Z][0-9]{2}(?:\.[0-9A-Z]{1,4})?)\b", params.note_text, re.IGNORECASE)
     ))
     cpt_in_note = list(set(
-        m for m in re.findall(r"\b(9[0-9]{4}|[1-8][0-9]{4})\b", clean_note)
+        m for m in re.findall(r"\b(9[0-9]{4}|[1-8][0-9]{4})\b", params.note_text)
     ))
     all_codes_in_note = icd_in_note + cpt_in_note
 
