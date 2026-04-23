@@ -214,7 +214,7 @@ SUD_ICD10_PREFIXES = (
 mcp = FastMCP(
     "medscribe_rcm",
     auth=AuthSettings(
-        issuer_url="https://api.workos.com",
+        issuer_url="https://api.workos.com/sso/jwks/client_01KNM2F2BWRT9ZRT3NJPN5W958",
         resource_server_url="https://mcp.medscribepro.in",
         required_scopes=["rcm:use"],
     ),
@@ -1135,6 +1135,4 @@ async def health_check(request):
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
 if __name__ == "__main__":
-    mcp.run()          # stdio transport â€” compatible with Claude Desktop
-
-
+    mcp.run(transport="streamable-http")
