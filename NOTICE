@@ -1,49 +1,60 @@
 MedScribe RCM-FastMCP
-Copyright (c) 2026 MedScribe Professional Resources
+Copyright 2026 MedScribe Professional Resources
+Warangal, Telangana, India
+contact@medscribepro.in
 
-This product includes software developed by MedScribe Professional Resources
-and is licensed under the Apache License, Version 2.0.
+========================================================================
+TRADE SECRET NOTICE
+========================================================================
 
-------------------------------------------------------------
-NOTICE OF TRADE SECRET COMPONENTS
-------------------------------------------------------------
+This product includes the following components that are proprietary
+trade secrets of MedScribe Professional Resources and are NOT covered
+by the Apache 2.0 open-source license:
 
-The following components are NOT fully disclosed in this open-source repository
-and are protected as trade secrets:
+1. NOS/NEC SENTINEL ENGINE
+   The complete list of 22 ICD-10-CM sentinel codes (11 NOS + 11 NEC),
+   their associated denial-risk weighting logic, and the decision rules
+   that flag them as medical necessity denial triggers constitute a
+   proprietary trade secret developed from 20+ years of medical
+   transcription and coding expertise.
 
-1. NOS/NEC Sentinel Detection Algorithm
-   - While code lists (ICD-10-CM NOS and NEC codes) may be publicly visible,
-     the logic for contextual detection, prioritization, and denial prevention
-     is proprietary.
+2. RULES ENGINE (rules_engine_version: 2026-Q1)
+   The payer-specific denial pattern matching logic, risk scoring
+   algorithm (0–100), and threshold calibration embedded in
+   validate_claim_bundle and suggest_codes_with_context.
 
-2. Rules Engine Version Matrix
-   - Internal versioning logic that maps CMS datasets (ICD-10, NCCI, MUE,
-     payer rules) to decision pathways is proprietary.
+3. APPEAL TEMPLATE LIBRARY
+   The structured appeal letter templates, CARC/RARC response mappings,
+   and 72-hour vs. 7-day escalation logic in analyze_denial_and_appeal.
 
-3. Payer-Specific Appeal Template Library
-   - Structured appeal generation logic based on payer behavior,
-     CMS-0057-F data, and denial analytics is proprietary.
+These components are protected under trade secret law (Indian IT Act
+2000, Section 43A; U.S. Defend Trade Secrets Act 2016). Reproduction,
+reverse engineering, or redistribution of these components without
+written authorization is strictly prohibited.
 
-------------------------------------------------------------
-USAGE RESTRICTIONS
-------------------------------------------------------------
+========================================================================
+OPEN-SOURCE ATTRIBUTION
+========================================================================
 
-Unauthorized replication, reverse engineering, or commercial use of the
-above proprietary components outside the official MedScribe API service
-is strictly prohibited.
+This product is built on or incorporates the following open-source
+projects, each under their respective licenses:
 
-------------------------------------------------------------
-DISCLAIMER
-------------------------------------------------------------
+- FastMCP          — MIT License    — https://github.com/jlowin/fastmcp
+- Microsoft Presidio — MIT License  — https://github.com/microsoft/presidio
+- spaCy            — MIT License    — https://github.com/explosion/spaCy
+- Pydantic         — MIT License    — https://github.com/pydantic/pydantic
+- Supabase Python  — MIT License    — https://github.com/supabase/supabase-py
+- httpx            — BSD License    — https://github.com/encode/httpx
+- contextkits/healthcare-billing-codes — MIT License (fork base)
 
-This software processes healthcare-related data. Users are responsible for
-ensuring compliance with applicable laws, including but not limited to:
+========================================================================
+COMPLIANCE NOTICE
+========================================================================
 
-- HIPAA (Health Insurance Portability and Accountability Act)
-- 42 CFR Part 2 (Substance Use Disorder confidentiality)
-- CMS billing and coding regulations
+This software is designed for use in compliance with:
+- HIPAA Privacy Rule (45 CFR Parts 160 and 164)
+- 42 CFR Part 2 (Confidentiality of Substance Use Disorder Records)
+- CMS-0057-F (Interoperability and Prior Authorization Final Rule)
 
-MedScribe Professional Resources does not store Protected Health Information (PHI).
-All PHI is processed transiently in-memory only.
-
-------------------------------------------------------------
+PHI is processed in RAM only and is never written to persistent storage.
+Users are responsible for their own HIPAA compliance obligations.
