@@ -1,0 +1,139 @@
+{
+  "default": {
+    "deny_unspecified": false,
+    "require_laterality": [],
+    "prior_auth_required": [],
+    "sud_sensitive": false,
+    "ncci_blocked_pairs": [],
+    "max_units": {},
+    "requires_modifier_25": [],
+    "requires_modifier_59": []
+  },
+
+  "medicare": {
+    "deny_unspecified": true,
+    "require_laterality": ["M79.3", "M54.5", "M25.5"],
+    "prior_auth_required": ["99215", "99214", "J0129", "J0135"],
+    "sud_sensitive": false,
+    "ncci_blocked_pairs": [
+      ["99213", "99212"],
+      ["97110", "97530"],
+      ["93000", "93010"]
+    ],
+    "max_units": {
+      "97110": 4,
+      "97530": 4,
+      "97035": 4,
+      "99213": 1
+    },
+    "requires_modifier_25": ["99213", "99214", "99215"],
+    "requires_modifier_59": ["97110", "97530"]
+  },
+
+  "medicaid": {
+    "deny_unspecified": true,
+    "require_laterality": ["M79.3", "M25.5"],
+    "prior_auth_required": ["99215", "J0129", "J0135", "L8699"],
+    "sud_sensitive": true,
+    "ncci_blocked_pairs": [
+      ["99213", "99212"],
+      ["97110", "97530"]
+    ],
+    "max_units": {
+      "97110": 3,
+      "97530": 3,
+      "99213": 1
+    },
+    "requires_modifier_25": ["99213", "99214", "99215"],
+    "requires_modifier_59": ["97110", "97530"]
+  },
+
+  "bcbs": {
+    "deny_unspecified": false,
+    "require_laterality": ["M79.3", "M54.5"],
+    "prior_auth_required": ["J0129", "J0135", "99215"],
+    "sud_sensitive": false,
+    "ncci_blocked_pairs": [
+      ["93000", "93010"],
+      ["97110", "97530"]
+    ],
+    "max_units": {
+      "97110": 4,
+      "97530": 4
+    },
+    "requires_modifier_25": ["99214", "99215"],
+    "requires_modifier_59": ["97110"]
+  },
+
+  "aetna": {
+    "deny_unspecified": false,
+    "require_laterality": ["M25.5", "M79.3"],
+    "prior_auth_required": ["J0129", "J0135", "99215", "L8699"],
+    "sud_sensitive": false,
+    "ncci_blocked_pairs": [
+      ["93000", "93010"],
+      ["99213", "99212"]
+    ],
+    "max_units": {
+      "97110": 4,
+      "97530": 4,
+      "99213": 1
+    },
+    "requires_modifier_25": ["99213", "99214", "99215"],
+    "requires_modifier_59": ["97110", "97530"]
+  },
+
+  "united": {
+    "deny_unspecified": true,
+    "require_laterality": ["M79.3", "M54.5", "M25.5"],
+    "prior_auth_required": ["J0129", "J0135", "99215", "97110"],
+    "sud_sensitive": true,
+    "ncci_blocked_pairs": [
+      ["97110", "97530"],
+      ["93000", "93010"],
+      ["99213", "99212"]
+    ],
+    "max_units": {
+      "97110": 3,
+      "97530": 3,
+      "99213": 1
+    },
+    "requires_modifier_25": ["99213", "99214", "99215"],
+    "requires_modifier_59": ["97110", "97530"]
+  },
+
+  "cigna": {
+    "deny_unspecified": false,
+    "require_laterality": ["M25.5", "M79.3"],
+    "prior_auth_required": ["J0129", "J0135"],
+    "sud_sensitive": false,
+    "ncci_blocked_pairs": [
+      ["93000", "93010"],
+      ["97110", "97530"]
+    ],
+    "max_units": {
+      "97110": 4,
+      "97530": 4
+    },
+    "requires_modifier_25": ["99214", "99215"],
+    "requires_modifier_59": ["97110"]
+  },
+
+  "humana": {
+    "deny_unspecified": false,
+    "require_laterality": ["M79.3", "M54.5"],
+    "prior_auth_required": ["J0129", "99215"],
+    "sud_sensitive": false,
+    "ncci_blocked_pairs": [
+      ["99213", "99212"],
+      ["97110", "97530"]
+    ],
+    "max_units": {
+      "97110": 4,
+      "97530": 4,
+      "99213": 1
+    },
+    "requires_modifier_25": ["99213", "99214", "99215"],
+    "requires_modifier_59": ["97110", "97530"]
+  }
+}
