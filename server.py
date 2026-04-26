@@ -1059,4 +1059,4 @@ async def health_check(request):
     })
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http", allowed_hosts=["mcp.medscribepro.in", "localhost"])
+    mcp.run(transport="streamable-http")
