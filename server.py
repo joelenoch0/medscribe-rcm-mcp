@@ -32,7 +32,8 @@ import os
 import re
 import uuid
 from mcp.server.auth.provider import TokenVerifier, AccessToken
-from datetime import datetime, timezone
+from mcp.server.transport_security import TransportSecuritySettings
+from datetime import datetime, timezones
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -1059,4 +1060,7 @@ async def health_check(request):
     })
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    mcp.run(
+        transport="streamable-http",
+        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    )
