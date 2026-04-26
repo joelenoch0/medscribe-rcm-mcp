@@ -210,9 +210,11 @@ SUD_ICD10_PREFIXES = (
 # ─────────────────────────────────────────────────────────────
 # MCP SERVER INITIALIZATION
 # ─────────────────────────────────────────────────────────────
-mcp = FastMCP(
-    "medscribe_rcm",
-        instructions=(
+mcp = FastMCP
+"medscribe_rcm",
+token_verifier=verifier,
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    instructions=(
         "MedScribe RCM-FastMCP is a denial-prevention Revenue Cycle Management pipeline. "
         "It extracts ICD-10/CPT codes, applies NOS/NEC sentinel intelligence, validates claim "
         "bundles against NCCI edits, and generates medically-justified appeal letters via MedGemma. "
@@ -1060,7 +1062,4 @@ async def health_check(request):
     })
 
 if __name__ == "__main__":
-    mcp.run(
-        transport="streamable-http",
-        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
-    )
+    mcp.run(transport="streamable-http")
