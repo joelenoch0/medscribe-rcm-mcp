@@ -8,31 +8,30 @@ log = logging.getLogger("medscribe_rcm")
 MedScribe RCM-FastMCP  |  server.py
 ====================================
 Production-ready Revenue Cycle Management MCP Server
-Copyright Â© MedScribe Professional Resources, Warangal, Telangana, IN
+Copyright © MedScribe Professional Resources, Warangal, Telangana, IN
 
-ARCHITECTURE: Single-file FastMCP server â€” 4 tools, zero PHI persistence
+ARCHITECTURE: Single-file FastMCP server — 4 tools, zero PHI persistence
 COMPLIANCE  : HIPAA (PHI RAM-only), 42 CFR Part 2 (SUD consent gating)
-TRADE SECRET: NOS/NEC sentinel engine (Tool 2) â€” see NOTICE file
+TRADE SECRET: NOS/NEC sentinel engine (Tool 2) — see NOTICE file
 
 Pipeline order enforced in every tool:
-  1 â†’ Consent Middleware  (42 CFR Part 2)
-  2 â†’ PHI Redaction INPUT (Presidio)
-  3 â†’ spaCy Preprocessing
-  4 â†’ Core Logic
-  5 â†’ PHI Redaction OUTPUT (Presidio)
-  6 â†’ Audit Log (PHI-free)
+  1 → Consent Middleware  (42 CFR Part 2)
+  2 → PHI Redaction INPUT (Presidio)
+  3 → spaCy Preprocessing
+  4 → Core Logic
+  5 → PHI Redaction OUTPUT (Presidio)
+  6 → Audit Log (PHI-free)
 """
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# IMPORTS â€” stdlib, then third-party, then internal
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────
+# IMPORTS — stdlib, then third-party, then internal
+# ─────────────────────────────────────────────────────────────
 
 import json
 import os
 import re
 import uuid
 from mcp.server.auth.provider import TokenVerifier, AccessToken
-from mcp.server.auth.settings import AuthSettings
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
@@ -45,18 +44,18 @@ from presidio_anonymizer import AnonymizerEngine
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from supabase import Client, create_client
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────
 # GLOBAL ONE-TIME INITIALIZATIONS
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────
 
-# spaCy â€” load once; use for clinical text normalization
+# spaCy — load once; use for clinical text normalization
 try:
     NLP = spacy.load("en_core_web_sm")
 except OSError:
-    log.warning("spaCy model not found â€” run: python -m spacy download en_core_web_sm")
+    log.warning("spaCy model not found — run: python -m spacy download en_core_web_sm")
     NLP = None  # graceful degradation
 
-# Presidio â€” lazy-loaded on first use to avoid Claude Desktop startup timeout
+# Presidio — lazy-loaded on first use to avoid Claude Desktop startup timeout
 # Force en_core_web_sm to avoid auto-downloading the 400MB lg model
 from presidio_analyzer.nlp_engine import NlpEngineProvider
 _PRESIDIO_ANALYZER  = None
@@ -72,7 +71,7 @@ def _get_presidio():
         _PRESIDIO_ANONYMIZER = AnonymizerEngine()
     return _PRESIDIO_ANALYZER, _PRESIDIO_ANONYMIZER
 
-# Payer rules â€” loaded once, cached, never stores PHI
+# Payer rules — loaded once, cached, never stores PHI
 @lru_cache(maxsize=1)
 def _load_payer_rules() -> Dict[str, Any]:
     rules_path = os.path.join(os.path.dirname(__file__), "data", "payer_rules.json")
@@ -80,12 +79,11 @@ def _load_payer_rules() -> Dict[str, Any]:
         with open(rules_path, "r", encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
-        log.warning("data/payer_rules.json not found â€” using empty rule set")
+        log.warning("data/payer_rules.json not found — using empty rule set")
         return {"default": {}}
 
 PAYER_RULES: Dict[str, Any] = _load_payer_rules()
 
-# ── STARTUP GUARD ──────────────────────────────────────────────
 # ── STARTUP GUARD ──────────────────────────────────────────────
 _WORKOS_JWKS_URI = os.getenv("WORKOS_JWKS_URI", "")
 if not _WORKOS_JWKS_URI:
@@ -137,7 +135,7 @@ class WorkOSTokenVerifier:
 
 verifier = WorkOSTokenVerifier(jwks_uri=_WORKOS_JWKS_URI)
 
-# Supabase â€” free tier, NON-PHI metadata only
+# Supabase — free tier, NON-PHI metadata only
 _SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 _SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY", os.getenv("SUPABASE_ANON_KEY", ""))
 SUPABASE: Optional[Client] = None
@@ -147,7 +145,7 @@ if _SUPABASE_URL and _SUPABASE_KEY:
     except Exception as exc:
         log.warning("Supabase init failed (non-fatal): %s", exc)
 
-# MedGemma â€” Google Vertex AI endpoint for appeal generation (Tool 4)
+# MedGemma — Google Vertex AI endpoint for appeal generation (Tool 4)
 MEDGEMMA_ENDPOINT = os.getenv(
     "MEDGEMMA_ENDPOINT",
     "https://us-central1-aiplatform.googleapis.com/v1/projects/{project}/locations/us-central1/publishers/google/models/medgemma:predict"
@@ -155,12 +153,12 @@ MEDGEMMA_ENDPOINT = os.getenv(
 MEDGEMMA_PROJECT  = os.getenv("GOOGLE_CLOUD_PROJECT", "")
 MEDGEMMA_API_KEY  = os.getenv("MEDGEMMA_API_KEY", "")  # alt: use ADC
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# NOS / NEC SENTINEL ENGINE  â† TRADE SECRET CORE
+# ─────────────────────────────────────────────────────────────
+# NOS / NEC SENTINEL ENGINE  ← TRADE SECRET CORE
 # 22 codes: 11 NOS + 11 NEC  (both types trigger medical-necessity denials)
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────
 
-# NOS = Not Otherwise Specified  â†  payer reads as "vague, justify it"
+# NOS = Not Otherwise Specified  ←  payer reads as "vague, justify it"
 NOS_SENTINEL_CODES: Dict[str, Dict[str, str]] = {
     "J06.9":  {"desc": "Acute URI, unspecified",              "safer": "J00, J02.9, J04.0", "risk": "HIGH"},
     "R51.9":  {"desc": "Headache, unspecified",               "safer": "G43.909, R51.0",    "risk": "HIGH"},
@@ -175,17 +173,17 @@ NOS_SENTINEL_CODES: Dict[str, Dict[str, str]] = {
     "I10":    {"desc": "Essential HTN (often NOS pattern)",   "safer": "I10 + stage doc",   "risk": "LOW"},
 }
 
-# NEC = Not Elsewhere Classified  â†  payer flags as "residual bucket code"
+# NEC = Not Elsewhere Classified  ←  payer flags as "residual bucket code"
 NEC_SENTINEL_CODES: Dict[str, Dict[str, str]] = {
-    "Z79.899": {"desc": "Other long-term medication use",             "safer": "Z79.01â€“Z79.84",    "risk": "MEDIUM"},
+    "Z79.899": {"desc": "Other long-term medication use",             "safer": "Z79.01–Z79.84",    "risk": "MEDIUM"},
     "M79.3":   {"desc": "Panniculitis, unspecified (NEC residual)",   "safer": "L93.2, M35.6",     "risk": "HIGH"},
     "R68.89":  {"desc": "Other specified general symptoms (NEC)",     "safer": "R68.81, R68.82",   "risk": "HIGH"},
     "K92.89":  {"desc": "Other diseases of digestive system (NEC)",   "safer": "K92.81, K57.30",   "risk": "MEDIUM"},
-    "M06.9":   {"desc": "RA, unspecified (NEC residual)",             "safer": "M06.00â€“M06.09",    "risk": "HIGH"},
+    "M06.9":   {"desc": "RA, unspecified (NEC residual)",             "safer": "M06.00–M06.09",    "risk": "HIGH"},
     "L98.9":   {"desc": "Disorder of skin/subcut, unspecified (NEC)", "safer": "L97.-, L89.-",     "risk": "HIGH"},
     "R41.89":  {"desc": "Other cognitive symptoms (NEC)",             "safer": "R41.3, R41.81",    "risk": "MEDIUM"},
     "Z87.891": {"desc": "Personal history, other conditions (NEC)",   "safer": "Z87.39, Z87.89",   "risk": "LOW"},
-    "G89.9":   {"desc": "Pain NOS/NEC â€” dual trigger",                "safer": "G89.11, G89.29",   "risk": "HIGH"},
+    "G89.9":   {"desc": "Pain NOS/NEC — dual trigger",                "safer": "G89.11, G89.29",   "risk": "HIGH"},
     "J98.9":   {"desc": "Respiratory disorder, unspecified (NEC)",    "safer": "J98.01, J98.11",   "risk": "HIGH"},
     "M79.9":   {"desc": "Soft tissue disorder, unspecified (NEC)",    "safer": "M79.1, M79.3",     "risk": "HIGH"},
 }
@@ -202,22 +200,17 @@ NEC_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# SUD diagnosis prefix list â€” triggers 42 CFR Part 2 handling
+# SUD diagnosis prefix list — triggers 42 CFR Part 2 handling
 SUD_ICD10_PREFIXES = (
     "F10", "F11", "F12", "F13", "F14", "F15", "F16", "F17", "F18", "F19",
     "Z87.891",  # history of SUD
 )
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────
 # MCP SERVER INITIALIZATION
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────
 mcp = FastMCP(
     "medscribe_rcm",
-    auth=AuthSettings(
-        issuer_url="https://api.workos.com/sso/jwks/client_01KNM2F2BWRT9ZRT3NJPN5W958",
-        resource_server_url="https://mcp.medscribepro.in",
-        required_scopes=["rcm:use"],
-    ),
     token_verifier=verifier,
     instructions=(
         "MedScribe RCM-FastMCP is a denial-prevention Revenue Cycle Management pipeline. "
@@ -227,14 +220,14 @@ mcp = FastMCP(
     ),
 )
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# PYDANTIC MODELS â€” Input / Output
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────
+# PYDANTIC MODELS — Input / Output
+# ─────────────────────────────────────────────────────────────
 
 class ExtractCodesInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     note_text:     str  = Field(..., min_length=10, description="Raw clinical note text (dictated or typed)")
-    patient_token: str  = Field(..., min_length=4,  description="Hashed patient identifier â€” no PHI, used for consent lookup")
+    patient_token: str  = Field(..., min_length=4,  description="Hashed patient identifier — no PHI, used for consent lookup")
     compact:       bool = Field(False,              description="Return minimal response (tool-chaining mode)")
 
 class SuggestCodesInput(BaseModel):
@@ -247,7 +240,7 @@ class ValidateClaimInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     codes:   List[str] = Field(..., min_length=1, description="List of ICD-10 and CPT codes to validate")
     payer:   str       = Field(..., min_length=2, description="Payer name for rule lookup")
-    dos:     str       = Field(..., description="Date of service â€” YYYY-MM-DD format")
+    dos:     str       = Field(..., description="Date of service — YYYY-MM-DD format")
     units:   int       = Field(..., ge=1, le=99,  description="Number of units billed")
     compact: bool      = Field(False,             description="Return minimal response for chaining")
 
@@ -268,9 +261,9 @@ class AnalyzeDenialInput(BaseModel):
     patient_token: str        = Field(..., min_length=4, description="Hashed patient token for consent lookup")
     compact:       bool       = Field(False,             description="Return minimal response")
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────
 # SHARED PIPELINE HELPERS
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────
 
 
 def _meta(tool: str, payer: str = "", extra: Dict[str, Any] | None = None) -> Dict[str, Any]:
@@ -313,7 +306,6 @@ def _preprocess(text: str) -> str:
     """spaCy: normalize transcription artifacts, expand common abbreviations."""
     if NLP is None or not text:
         return text
-    # Quick abbreviation normalization before spaCy parse
     abbr_map = {
         r"\bHx\b":   "history",
         r"\bHtn\b":  "hypertension",
@@ -331,7 +323,6 @@ def _preprocess(text: str) -> str:
     }
     for pattern, replacement in abbr_map.items():
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
-    # spaCy sentence segmentation â€” rejoin clean sentences
     doc = NLP(text)
     return " ".join(sent.text.strip() for sent in doc.sents if sent.text.strip())
 
@@ -355,12 +346,9 @@ def _verify_consent(patient_token: str, payer: str, tool: str) -> Tuple[bool, st
     Dynamic Consent Orchestration Middleware.
     Checks Supabase consent_registry for valid consent record.
     Returns (approved: bool, reason: str).
-
-    SUD cases trigger stricter 42 CFR Part 2 validation path.
-    If Supabase is not configured, consent is soft-approved with warning (dev mode).
     """
     if not SUPABASE:
-        log.warning("CONSENT: Supabase not configured â€” soft-approving (DEV MODE ONLY)")
+        log.warning("CONSENT: Supabase not configured — soft-approving (DEV MODE ONLY)")
         return True, "soft_approved_dev_mode"
 
     try:
@@ -408,7 +396,7 @@ def _audit_log(tool: str, patient_token: str, payer: str, trace_id: str, status:
     try:
         SUPABASE.table("audit_log").insert({
             "tool":          tool,
-            "patient_token": patient_token,   # already hashed â€” not PHI
+            "patient_token": patient_token,
             "payer":         payer,
             "trace_id":      trace_id,
             "status":        status,
@@ -418,15 +406,11 @@ def _audit_log(tool: str, patient_token: str, payer: str, trace_id: str, status:
         log.error("Audit log write failed (non-fatal): %s", exc)
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# NOS/NEC ENGINE â€” called by Tool 2 only
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────
+# NOS/NEC ENGINE — called by Tool 2 only
+# ─────────────────────────────────────────────────────────────
 
 def _detect_nos_nec_in_text(text: str) -> Dict[str, Any]:
-    """
-    Scan free text for NOS/NEC language patterns.
-    Returns counts and flagged phrases.
-    """
     nos_matches = NOS_PATTERN.findall(text)
     nec_matches = NEC_PATTERN.findall(text)
     return {
@@ -438,10 +422,6 @@ def _detect_nos_nec_in_text(text: str) -> Dict[str, Any]:
 
 
 def _check_sentinel_codes(codes: List[str]) -> List[Dict[str, Any]]:
-    """
-    Cross-reference extracted codes against the 22-code sentinel list.
-    Returns a list of flagged code objects with risk, description, and safer alternatives.
-    """
     flagged = []
     for code in codes:
         clean = code.strip().upper()
@@ -460,7 +440,6 @@ def _check_sentinel_codes(codes: List[str]) -> List[Dict[str, Any]]:
 
 
 def _apply_payer_warnings(codes: List[str], payer_rules: Dict[str, Any]) -> List[str]:
-    """Return payer-specific warnings for the submitted code list."""
     warnings = []
     deny_unspec = payer_rules.get("deny_unspecified", False)
     laterality_prefixes = payer_rules.get("require_laterality", [])
@@ -473,22 +452,18 @@ def _apply_payer_warnings(codes: List[str], payer_rules: Dict[str, Any]) -> List
 
     for code in codes:
         if code in prior_auth:
-            warnings.append(f"{code}: prior authorization required â€” obtain PA before billing")
+            warnings.append(f"{code}: prior authorization required — obtain PA before billing")
 
     return warnings
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# MEDGEMMA INTEGRATION â€” Tool 4 appeal generation
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────
+# MEDGEMMA INTEGRATION — Tool 4 appeal generation
+# ─────────────────────────────────────────────────────────────
 
 async def _call_medgemma(prompt: str) -> str:
-    """
-    Call MedGemma via Google Vertex AI for clinically accurate appeal text.
-    Falls back to a high-quality deterministic template if unavailable.
-    """
     if not MEDGEMMA_PROJECT or not MEDGEMMA_API_KEY:
-        log.warning("MedGemma not configured â€” using deterministic appeal template")
+        log.warning("MedGemma not configured — using deterministic appeal template")
         return _deterministic_appeal_template(prompt)
 
     endpoint = MEDGEMMA_ENDPOINT.replace("{project}", MEDGEMMA_PROJECT)
@@ -510,17 +485,13 @@ async def _call_medgemma(prompt: str) -> str:
         log.error("MedGemma HTTP error %s: %s", exc.response.status_code, exc.response.text[:200])
         return _deterministic_appeal_template(prompt)
     except Exception as exc:
-        log.error("MedGemma call failed: %s â€” falling back to template", exc)
+        log.error("MedGemma call failed: %s — falling back to template", exc)
         return _deterministic_appeal_template(prompt)
 
 
 def _deterministic_appeal_template(context: str) -> str:
-    """
-    High-quality, CMS-0057-F-aligned appeal letter template.
-    Used when MedGemma is not configured or unavailable.
-    """
     return (
-        "RE: FORMAL APPEAL â€” Medical Necessity Determination\n\n"
+        "RE: FORMAL APPEAL — Medical Necessity Determination\n\n"
         "Dear Medical Review Department,\n\n"
         "We are writing to formally appeal the denial of the referenced claim. "
         "The services provided were medically necessary and appropriate per current clinical guidelines "
@@ -538,7 +509,7 @@ def _deterministic_appeal_template(context: str) -> str:
         f"CLAIM CONTEXT:\n{context[:500]}\n\n"
         "We are prepared to provide additional supporting documentation upon request. "
         "Please contact our billing office within 30 days of receipt.\n\n"
-        "Sincerely,\nMedScribe Professional Resources â€” Billing Department"
+        "Sincerely,\nMedScribe Professional Resources — Billing Department"
     )
 
 
@@ -548,7 +519,6 @@ def _build_medgemma_prompt(
     claim_data: Dict[str, Any],
     is_sud: bool,
 ) -> str:
-    """Construct a clinically focused appeal prompt for MedGemma."""
     sud_clause = (
         "\n\nIMPORTANT: This claim involves substance use disorder services. "
         "The appeal must include 42 CFR Part 2 confidentiality language and must not disclose "
@@ -577,9 +547,9 @@ def _build_medgemma_prompt(
     )
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────
 # TOOL 1: extract_codes_from_note
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────
 
 @mcp.tool(
     name="extract_codes_from_note",
@@ -595,8 +565,8 @@ async def extract_codes_from_note(params: ExtractCodesInput) -> str:
     """
     Extract ICD-10-CM diagnoses and CPT procedure codes from a raw clinical note.
 
-    Applies the full 6-component pipeline: consent â†’ PHI redaction â†’ spaCy normalization
-    â†’ code extraction with confidence scores â†’ output redaction â†’ audit log.
+    Applies the full 6-component pipeline: consent → PHI redaction → spaCy normalization
+    → code extraction with confidence scores → output redaction → audit log.
 
     Best used as the FIRST step in the RCM pipeline. Pass extracted codes to
     suggest_codes_with_context for NOS/NEC denial-prevention analysis.
@@ -612,7 +582,7 @@ async def extract_codes_from_note(params: ExtractCodesInput) -> str:
     """
     meta = _meta("extract_codes_from_note", extra={"patient_token": params.patient_token[:8] + "***"})
 
-    # â”€â”€ STEP 1: Consent Middleware â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── STEP 1: Consent Middleware ──────────────────────────────────────────────────
     approved, reason = _verify_consent(params.patient_token, payer="general", tool="extract_codes_from_note")
     if not approved:
         _audit_log("extract_codes_from_note", params.patient_token, "general", meta["trace_id"], f"BLOCKED:{reason}")
@@ -624,9 +594,7 @@ async def extract_codes_from_note(params: ExtractCodesInput) -> str:
     # ── STEP 3: spaCy Preprocessing ────────────────────────────────────────────────
     clean_note = _preprocess(redacted_note)
 
-    # ── STEP 4: Core Logic – Code Extraction ────────────────────────────────────────
-    # Pattern-based extraction from normalized clinical text.
-    # In production: integrate a medical NLP model (cTAKES, MedSpaCy, AWS Comprehend Medical).
+    # ── STEP 4: Core Logic – Code Extraction ───────────────────────────────────────
     icd10_pattern = re.compile(
         r"\b([A-TV-Z][0-9]{2}(?:\.[0-9A-Z]{1,4})?)\b", re.IGNORECASE
     )
@@ -635,14 +603,13 @@ async def extract_codes_from_note(params: ExtractCodesInput) -> str:
     raw_icd = list(set(m.upper() for m in icd10_pattern.findall(params.note_text)))
     raw_cpt = list(set(m for m in cpt_pattern.findall(params.note_text)))
 
-    # Assign confidence based on code format completeness
     def _confidence(code: str) -> float:
         if re.match(r"^[A-Z][0-9]{2}\.[0-9A-Z]{2,4}$", code):
             return 0.92
         if re.match(r"^[A-Z][0-9]{2}\.[0-9A-Z]{1}$", code):
             return 0.78
         if re.match(r"^[A-Z][0-9]{2}$", code):
-            return 0.55  # 3-char only â€” likely NOS risk
+            return 0.55
         return 0.40
 
     icd_with_scores = [{"code": c, "type": "ICD-10-CM", "confidence": _confidence(c)} for c in raw_icd]
@@ -651,10 +618,7 @@ async def extract_codes_from_note(params: ExtractCodesInput) -> str:
     all_codes = raw_icd + raw_cpt
     is_sud    = _is_sud_related(raw_icd)
 
-    # â”€â”€ STEP 5: PHI Redaction â€” OUTPUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    # Codes themselves are not PHI; no further redaction needed.
-
-    # â”€â”€ STEP 6: Audit Log (PHI-free) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── STEP 6: Audit Log (PHI-free) ───────────────────────────────────────────────
     _audit_log("extract_codes_from_note", params.patient_token, "general", meta["trace_id"], "SUCCESS")
 
     if params.compact:
@@ -675,9 +639,9 @@ async def extract_codes_from_note(params: ExtractCodesInput) -> str:
     }, indent=2)
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# TOOL 2: suggest_codes_with_context  â† CORE PRODUCT (NOS/NEC ENGINE)
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────
+# TOOL 2: suggest_codes_with_context  ← CORE PRODUCT (NOS/NEC ENGINE)
+# ─────────────────────────────────────────────────────────────
 
 @mcp.tool(
     name="suggest_codes_with_context",
@@ -692,13 +656,6 @@ async def extract_codes_from_note(params: ExtractCodesInput) -> str:
 async def suggest_codes_with_context(params: SuggestCodesInput) -> str:
     """
     Apply NOS/NEC sentinel intelligence to reduce denial risk before claim submission.
-
-    This is the core product differentiator. It cross-references submitted codes against
-    the 22-code sentinel list (11 NOS + 11 NEC), flags high-risk unspecified codes that
-    trigger medical-necessity denials, and suggests specific, defensible alternatives.
-
-    Also applies payer-specific rules from payer_rules.json and scans clinical note text
-    for NOS/NEC language patterns that indicate documentation gaps.
 
     TRADE SECRET: The sentinel engine, scoring weights, and payer override logic are
     protected under the MedScribe NOTICE file.
@@ -715,24 +672,21 @@ async def suggest_codes_with_context(params: SuggestCodesInput) -> str:
     """
     meta = _meta("suggest_codes_with_context", payer=params.payer)
 
-    # â”€â”€ STEP 1: Consent Middleware â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    # Tool 2 receives note text without patient_token (by design â€” compact chaining).
-    # Consent was verified in Tool 1. For direct invocation, soft-check by payer.
+    # ── STEP 1: Consent Middleware ──────────────────────────────────────────────────
     if SUPABASE:
         payer_rules_rec = _get_payer_rules(params.payer)
         if payer_rules_rec.get("sud_sensitive") and NOS_PATTERN.search(params.note_text):
-            log.info("SUD-sensitive payer + NOS pattern â€” applying 42 CFR Part 2 caution")
+            log.info("SUD-sensitive payer + NOS pattern — applying 42 CFR Part 2 caution")
 
-    # â”€â”€ STEP 2: PHI Redaction â€” INPUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── STEP 2: PHI Redaction – INPUT ──────────────────────────────────────────────
     redacted_note = _redact_phi(params.note_text)
 
-    # â”€â”€ STEP 3: spaCy Preprocessing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── STEP 3: spaCy Preprocessing ────────────────────────────────────────────────
     clean_note = _preprocess(redacted_note)
 
-    # â”€â”€ STEP 4: Core Logic â€” NOS/NEC Sentinel Engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── STEP 4: Core Logic — NOS/NEC Sentinel Engine ───────────────────────────────
     payer_rules = _get_payer_rules(params.payer)
 
-    # Extract codes from the note text for sentinel cross-reference
     icd_in_note = list(set(
         m.upper()
         for m in re.findall(r"\b([A-TV-Z][0-9]{2}(?:\.[0-9A-Z]{1,4})?)\b", params.note_text, re.IGNORECASE)
@@ -742,35 +696,27 @@ async def suggest_codes_with_context(params: SuggestCodesInput) -> str:
     ))
     all_codes_in_note = icd_in_note + cpt_in_note
 
-    # Sentinel cross-reference â€” THE TRADE SECRET CORE
     flagged_sentinels = _check_sentinel_codes(icd_in_note)
-
-    # Payer-specific warnings
     payer_warnings = _apply_payer_warnings(all_codes_in_note, payer_rules)
-
-    # NOS/NEC language scan in free text
     text_scan = _detect_nos_nec_in_text(clean_note)
 
-    # Compute overall denial risk score (0â€“100)
     high_risk_count   = sum(1 for s in flagged_sentinels if s["denial_risk"] == "HIGH")
     medium_risk_count = sum(1 for s in flagged_sentinels if s["denial_risk"] == "MEDIUM")
     text_risk_pts     = (text_scan["nos_language_count"] + text_scan["nec_language_count"]) * 5
     denial_risk_score = min(100, (high_risk_count * 25) + (medium_risk_count * 10) + text_risk_pts + len(payer_warnings) * 8)
 
-    # Documentation gap recommendations
     doc_gaps = []
     if high_risk_count > 0:
         doc_gaps.append("Replace all NOS/NEC codes with specificity-level alternatives before submission")
     if text_scan["nos_language_count"] > 0:
-        doc_gaps.append("Clinical note contains 'unspecified' language â€” request addendum from provider for specificity")
+        doc_gaps.append("Clinical note contains 'unspecified' language — request addendum from provider for specificity")
     if text_scan["nec_language_count"] > 0:
-        doc_gaps.append("NEC residual categories detected â€” verify no more-specific ICD-10 code exists")
+        doc_gaps.append("NEC residual categories detected — verify no more-specific ICD-10 code exists")
     if payer_rules.get("require_laterality"):
-        doc_gaps.append(f"Payer requires laterality on: {payer_rules['require_laterality']} â€” verify documentation")
+        doc_gaps.append(f"Payer requires laterality on: {payer_rules['require_laterality']} — verify documentation")
     if payer_rules.get("requires_modifier_25") and any(c in payer_rules["requires_modifier_25"] for c in cpt_in_note):
-        doc_gaps.append("E&M code on same day as procedure â€” Modifier 25 required; document separate and distinct service")
+        doc_gaps.append("E&M code on same day as procedure — Modifier 25 required; document separate and distinct service")
 
-    # SUD 42 CFR Part 2 flag
     is_sud = _is_sud_related(icd_in_note)
     part2_notice = (
         "42 CFR Part 2 ACTIVE: SUD-related codes detected. "
@@ -778,21 +724,16 @@ async def suggest_codes_with_context(params: SuggestCodesInput) -> str:
         "Use restricted disclosure language on any appeals or authorizations."
     ) if is_sud else None
 
-    # Build safe optimized code list (sentinels replaced with safer alternatives where unambiguous)
     optimized_codes = []
     sentinel_code_set = {s["code"] for s in flagged_sentinels}
     for code in icd_in_note:
         if code in sentinel_code_set:
             match = ALL_SENTINELS[code]
-            safer = match["safer"].split(",")[0].strip()  # first safer suggestion
+            safer = match["safer"].split(",")[0].strip()
             optimized_codes.append({"original": code, "suggested": safer, "action": "REPLACE"})
         else:
             optimized_codes.append({"original": code, "suggested": code, "action": "KEEP"})
 
-    # â”€â”€ STEP 5: PHI Redaction â€” OUTPUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    # Codes are not PHI; doc gaps and warnings may echo note text â€” keep redacted.
-
-    # â”€â”€ STEP 6: Audit Log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     _audit_log("suggest_codes_with_context", "pipeline", params.payer, meta["trace_id"], "SUCCESS")
 
     if params.compact:
@@ -821,9 +762,9 @@ async def suggest_codes_with_context(params: SuggestCodesInput) -> str:
     }, indent=2)
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────
 # TOOL 3: validate_claim_bundle
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────
 
 @mcp.tool(
     name="validate_claim_bundle",
@@ -839,15 +780,12 @@ async def validate_claim_bundle(params: ValidateClaimInput) -> str:
     """
     Validate a claim bundle against NCCI edits, payer-specific rules, unit limits, and DOS checks.
 
-    Identifies bundling conflicts, modifier requirements, unit overages, and code compatibility
-    issues before claim submission. Reduces rejection rate at the clearinghouse level.
-
     Args:
         params (ValidateClaimInput):
             codes (List[str]): ICD-10 and CPT codes to validate
             payer (str): Target payer for rule lookup
             dos (str): Date of service in YYYY-MM-DD format
-            units (int): Number of units billed (1â€“99)
+            units (int): Number of units billed (1–99)
             compact (bool): If True, returns pass/fail + error list only
 
     Returns:
@@ -856,90 +794,67 @@ async def validate_claim_bundle(params: ValidateClaimInput) -> str:
     """
     meta = _meta("validate_claim_bundle", payer=params.payer)
 
-    # â”€â”€ STEP 1: Consent Middleware â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    # validate_claim_bundle operates on codes (non-PHI). Use a pipeline token.
-    # Full consent verified upstream in Tool 1.
     approved, reason = _verify_consent("pipeline_validation", params.payer, "validate_claim_bundle")
     if not approved and reason != "soft_approved_dev_mode":
         _audit_log("validate_claim_bundle", "pipeline", params.payer, meta["trace_id"], f"BLOCKED:{reason}")
         return json.dumps({"error": "consent_denied", "reason": reason, "meta": meta}, indent=2)
 
-    # â”€â”€ STEP 2: PHI Redaction â€” INPUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    # Codes and dates are not PHI by themselves. No action needed.
-
-    # â”€â”€ STEP 3: spaCy Preprocessing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    # N/A â€” structured input only.
-
-    # â”€â”€ STEP 4: Core Logic â€” Claim Validation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     payer_rules  = _get_payer_rules(params.payer)
     errors:   List[str] = []
     warnings: List[str] = []
 
-    # DOS validity (not in the future, not older than 365 days)
     dos_dt = datetime.strptime(params.dos, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     now    = datetime.now(timezone.utc)
     if dos_dt > now:
-        errors.append(f"DOS {params.dos} is in the future â€” recheck date of service")
+        errors.append(f"DOS {params.dos} is in the future — recheck date of service")
     elif (now - dos_dt).days > 365:
-        warnings.append(f"DOS {params.dos} is older than 365 days â€” timely filing may be an issue")
+        warnings.append(f"DOS {params.dos} is older than 365 days — timely filing may be an issue")
 
-    # Sentinel code check â€” NOS/NEC still slipping through?
     remaining_sentinels = _check_sentinel_codes(params.codes)
     for s in remaining_sentinels:
         errors.append(
-            f"{s['code']} is a {s['sentinel_type']} sentinel code (risk={s['denial_risk']}) â€” "
+            f"{s['code']} is a {s['sentinel_type']} sentinel code (risk={s['denial_risk']}) — "
             f"replace with: {s['safer_codes']}"
         )
 
-    # NCCI blocked pairs
     ncci_pairs = payer_rules.get("ncci_blocked_pairs", [])
     for pair in ncci_pairs:
         if len(pair) == 2 and pair[0] in params.codes and pair[1] in params.codes:
             errors.append(f"NCCI edit: {pair[0]} and {pair[1]} cannot be billed together without Modifier 59")
 
-    # Unit limits
     max_units = payer_rules.get("max_units", {})
     for code in params.codes:
         limit = max_units.get(code)
         if limit and params.units > limit:
             errors.append(f"{code}: units={params.units} exceeds payer max={limit} for this code")
 
-    # Modifier 25 check
     mod25_codes = payer_rules.get("requires_modifier_25", [])
     for code in params.codes:
         if code in mod25_codes:
-            # Check if a procedure code is also present (simplified heuristic)
             has_procedure = any(
                 c.startswith(("9", "1", "2", "3", "4", "5", "6", "7", "8")) and len(c) == 5
                 for c in params.codes if c != code
             )
             if has_procedure:
-                warnings.append(f"{code}: E&M with same-day procedure â€” ensure Modifier 25 is appended")
+                warnings.append(f"{code}: E&M with same-day procedure — ensure Modifier 25 is appended")
 
-    # Modifier 59 check
     mod59_codes = payer_rules.get("requires_modifier_59", [])
     for code in params.codes:
         if code in mod59_codes and len(params.codes) > 1:
-            warnings.append(f"{code}: may require Modifier 59 when billed with other codes â€” verify medical necessity")
+            warnings.append(f"{code}: may require Modifier 59 when billed with other codes — verify medical necessity")
 
-    # Prior auth
     prior_auth = payer_rules.get("prior_auth_required", [])
     for code in params.codes:
         if code in prior_auth:
-            errors.append(f"{code}: prior authorization required for {params.payer} â€” obtain PA before billing")
+            errors.append(f"{code}: prior authorization required for {params.payer} — obtain PA before billing")
 
-    # SUD 42 CFR check
     is_sud      = _is_sud_related(params.codes)
     part2_notice = None
     if is_sud and payer_rules.get("sud_sensitive"):
-        part2_notice = "42 CFR Part 2: SUD codes + SUD-sensitive payer â€” consent documentation required on file"
+        part2_notice = "42 CFR Part 2: SUD codes + SUD-sensitive payer — consent documentation required on file"
 
     submission_ready = len(errors) == 0
 
-    # â”€â”€ STEP 5: PHI Redaction â€” OUTPUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    # No PHI in output â€” codes and validation results only.
-
-    # â”€â”€ STEP 6: Audit Log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     status = "PASS" if submission_ready else f"FAIL:{len(errors)}_errors"
     _audit_log("validate_claim_bundle", "pipeline", params.payer, meta["trace_id"], status)
 
@@ -964,14 +879,14 @@ async def validate_claim_bundle(params: ValidateClaimInput) -> str:
         "sentinel_codes_found": remaining_sentinels,
         "is_sud_related":      is_sud,
         "part2_notice":        part2_notice,
-        "next_step":           "If submission_ready=true, submit claim. If false, fix errors first." if not submission_ready else "Claim bundle is clean â€” safe to submit",
+        "next_step":           "If submission_ready=true, submit claim. If false, fix errors first." if not submission_ready else "Claim bundle is clean — safe to submit",
         "meta":                meta,
     }, indent=2)
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# TOOL 4: analyze_denial_and_appeal  â† REVENUE DRIVER
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────
+# TOOL 4: analyze_denial_and_appeal  ← REVENUE DRIVER
+# ─────────────────────────────────────────────────────────────
 
 @mcp.tool(
     name="analyze_denial_and_appeal",
@@ -988,33 +903,25 @@ async def analyze_denial_and_appeal(params: AnalyzeDenialInput) -> str:
     Analyze an insurance denial, identify root cause, and generate a clinically accurate
     appeal letter using MedGemma (Google Vertex AI medical language model).
 
-    Produces CMS-0057-F-aligned appeal language with payer-specific justification.
-    For SUD-related claims, automatically includes 42 CFR Part 2 compliant disclosure language.
-
-    This tool is the revenue recovery engine of the RCM pipeline.
-
     Args:
         params (AnalyzeDenialInput):
             denial_code (str): CARC/RARC code (e.g. CO-50, PR-96, OA-109, N115)
             payer (str): Payer that issued the denial
-            claim_data (dict): Non-PHI claim metadata â€” codes, DOS, units, NPI
+            claim_data (dict): Non-PHI claim metadata — codes, DOS, units, NPI
             patient_token (str): Hashed patient token for consent verification
             compact (bool): If True, returns appeal letter text only
 
     Returns:
-        str: JSON with denial root cause, appeal letter (MedGemma-generated), regulatory basis,
+        str: JSON with denial root cause, appeal letter, regulatory basis,
              success probability estimate, and 42 CFR Part 2 flag where applicable
     """
     meta = _meta("analyze_denial_and_appeal", payer=params.payer, extra={"patient_token": params.patient_token[:8] + "***"})
 
-    # â”€â”€ STEP 1: Consent Middleware â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     approved, reason = _verify_consent(params.patient_token, params.payer, "analyze_denial_and_appeal")
     if not approved:
         _audit_log("analyze_denial_and_appeal", params.patient_token, params.payer, meta["trace_id"], f"BLOCKED:{reason}")
         return json.dumps({"error": "consent_denied", "reason": reason, "meta": meta}, indent=2)
 
-    # â”€â”€ STEP 2: PHI Redaction â€” INPUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    # claim_data may contain provider notes â€” redact any text fields
     safe_claim = {}
     for k, v in params.claim_data.items():
         if isinstance(v, str):
@@ -1022,16 +929,11 @@ async def analyze_denial_and_appeal(params: AnalyzeDenialInput) -> str:
         else:
             safe_claim[k] = v
 
-    # â”€â”€ STEP 3: spaCy Preprocessing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    # N/A â€” structured denial code input.
-
-    # â”€â”€ STEP 4: Core Logic â€” Denial Analysis + MedGemma â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    # CARC/RARC denial code catalog (common denials)
     DENIAL_CATALOG: Dict[str, Dict[str, str]] = {
         "CO-4":   {"reason": "Service inconsistent with procedure code",        "category": "coding",        "success_prob": "HIGH"},
         "CO-11":  {"reason": "Diagnosis inconsistent with procedure",           "category": "medical_nec",   "success_prob": "MEDIUM"},
         "CO-16":  {"reason": "Missing or invalid claim information",            "category": "admin",         "success_prob": "HIGH"},
-        "CO-50":  {"reason": "Non-covered service â€” not medically necessary",   "category": "medical_nec",   "success_prob": "MEDIUM"},
+        "CO-50":  {"reason": "Non-covered service — not medically necessary",   "category": "medical_nec",   "success_prob": "MEDIUM"},
         "CO-97":  {"reason": "Payment included in allowance for another svc",   "category": "bundling",      "success_prob": "MEDIUM"},
         "PR-96":  {"reason": "Non-covered charge",                              "category": "coverage",      "success_prob": "LOW"},
         "OA-109": {"reason": "Claim not covered by this payer",                 "category": "coverage",      "success_prob": "LOW"},
@@ -1042,32 +944,26 @@ async def analyze_denial_and_appeal(params: AnalyzeDenialInput) -> str:
     }
 
     denial_info  = DENIAL_CATALOG.get(params.denial_code.upper(), {
-        "reason":       "Denial reason not in catalog â€” manual review required",
+        "reason":       "Denial reason not in catalog — manual review required",
         "category":     "unknown",
         "success_prob": "UNKNOWN",
     })
 
-    # SUD / 42 CFR Part 2
     claim_codes = safe_claim.get("codes", [])
     if isinstance(claim_codes, str):
         claim_codes = [c.strip() for c in claim_codes.split(",")]
     is_sud = _is_sud_related(claim_codes)
 
-    # Remaining NOS/NEC codes â€” root cause?
     sentinel_hits = _check_sentinel_codes(claim_codes)
     nos_nec_root_cause = (
-        f"NOS/NEC unspecified codes present: {[s['code'] for s in sentinel_hits]} â€” "
+        f"NOS/NEC unspecified codes present: {[s['code'] for s in sentinel_hits]} — "
         "likely triggered medical necessity denial. Replace with specific codes and resubmit."
     ) if sentinel_hits else None
 
-    # MedGemma appeal generation
     prompt       = _build_medgemma_prompt(params.denial_code, params.payer, safe_claim, is_sud)
     appeal_text  = await _call_medgemma(prompt)
+    appeal_text  = _redact_phi(appeal_text)
 
-    # â”€â”€ STEP 5: PHI Redaction â€” OUTPUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    appeal_text = _redact_phi(appeal_text)
-
-    # â”€â”€ STEP 6: Audit Log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     _audit_log("analyze_denial_and_appeal", params.patient_token, params.payer, meta["trace_id"], "APPEAL_GENERATED")
 
     if params.compact:
@@ -1100,7 +996,7 @@ async def analyze_denial_and_appeal(params: AnalyzeDenialInput) -> str:
         "next_steps": [
             "Review appeal letter for accuracy",
             "Attach supporting medical record documentation",
-            "Submit within payer's appeal timely-filing window (typically 60â€“180 days)",
+            "Submit within payer's appeal timely-filing window (typically 60–180 days)",
             "Track in your denial management system",
         ],
         "meta": meta,
@@ -1108,23 +1004,22 @@ async def analyze_denial_and_appeal(params: AnalyzeDenialInput) -> str:
 
 
 def _get_appeal_action(category: str) -> str:
-    """Return a targeted recommended action based on denial category."""
     actions = {
         "coding":      "Correct the code per updated ICD-10-CM/CPT guidelines and resubmit as corrected claim",
         "medical_nec": "Submit appeal with clinical documentation proving medical necessity per LCD/NCD criteria",
-        "bundling":    "Add Modifier 59/XE/XP/XS/XU as appropriate to bypass NCCI edit â€” document distinct service",
-        "admin":       "Correct missing information and resubmit â€” typically high success rate",
+        "bundling":    "Add Modifier 59/XE/XP/XS/XU as appropriate to bypass NCCI edit — document distinct service",
+        "admin":       "Correct missing information and resubmit — typically high success rate",
         "auth":        "Request retro-authorization if payer policy permits; otherwise write to exception review",
-        "coverage":    "Verify plan benefits and member eligibility on DOS â€” may be patient responsibility",
+        "coverage":    "Verify plan benefits and member eligibility on DOS — may be patient responsibility",
         "network":     "Verify provider contract status; consider gap exception or out-of-network appeal",
-        "unknown":     "Manual review required â€” contact payer provider services for denial reason clarification",
+        "unknown":     "Manual review required — contact payer provider services for denial reason clarification",
     }
     return actions.get(category, actions["unknown"])
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────
 # ENTRY POINT
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────
 @mcp.custom_route("/health", methods=["GET"])
 async def health_check(request):
     from starlette.responses import JSONResponse
@@ -1134,5 +1029,6 @@ async def health_check(request):
         "version": "1.0.0",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
+
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    mcp.run()
