@@ -218,6 +218,13 @@ mcp = FastMCP(
         "All PHI is processed in RAM only. Consent verification runs before every tool."
     ),
 )
+def require_auth(headers: dict):
+    auth = headers.get("authorization") or headers.get("Authorization")
+
+    if not auth:
+        raise ValueError("Missing Authorization header")
+
+    return True
 
 # ─────────────────────────────────────────────────────────────
 # PYDANTIC MODELS — Input / Output
@@ -560,7 +567,7 @@ def _build_medgemma_prompt(
         "openWorldHint": False,
     },
 )
-async def extract_codes_from_note(params: ExtractCodesInput) -> str:
+async def extract_codes_from_note(params: ExtractCodesInput, headers: dict = {}) -> str:
     """
     Extract ICD-10-CM diagnoses and CPT procedure codes from a raw clinical note.
 
@@ -580,6 +587,8 @@ async def extract_codes_from_note(params: ExtractCodesInput) -> str:
         str: JSON with extracted codes, confidence scores, SUD flag, and metadata lineage
     """
     meta = _meta("extract_codes_from_note", extra={"patient_token": params.patient_token[:8] + "***"})
+    
+    require_auth(headers)
 
     # ── STEP 1: Consent Middleware ──────────────────────────────────────────────────
     approved, reason = _verify_consent(params.patient_token, payer="general", tool="extract_codes_from_note")
