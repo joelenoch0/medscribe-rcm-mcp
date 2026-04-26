@@ -33,7 +33,7 @@ import re
 import uuid
 from mcp.server.auth.provider import TokenVerifier, AccessToken
 from mcp.server.transport_security import TransportSecuritySettings
-from datetime import datetime, timezones
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
