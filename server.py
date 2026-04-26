@@ -31,8 +31,6 @@ import json
 import os
 import re
 import uuid
-from mcp.server.auth.provider import TokenVerifier, AccessToken
-from mcp.server.auth.settings import AuthSettings
 from mcp.server.transport_security import TransportSecuritySettings
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -213,12 +211,6 @@ SUD_ICD10_PREFIXES = (
 # ─────────────────────────────────────────────────────────────
 mcp = FastMCP(
     "medscribe_rcm",
-    auth=AuthSettings(
-        issuer_url="https://api.workos.com",
-        resource_server_url="https://mcp.medscribepro.in",
-        required_scopes=["rcm:use"],
-    ),
-    token_verifier=verifier,
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     instructions=(
         "MedScribe RCM-FastMCP is a denial-prevention Revenue Cycle Management pipeline. "
