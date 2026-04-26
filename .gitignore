@@ -1,14 +1,43 @@
-# Data
-data/
-*.json
+# -------------------------
+# ENV & SECRETS (CRITICAL)
+# -------------------------
+.env
+.env.*
+.data/workos_secret
 
-# Logs
+
+# -------------------------
+# PYTHON
+# -------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+
+# -------------------------
+# LOGS
+# -------------------------
 *.log
 
-# OS
-desktop.ini
-
-# Env
-.venv/
-__pycache__/
+# -------------------------
+# EDITOR / OS
+# -------------------------
 .vscode/
+desktop.ini
+.DS_Store
+
+# -------------------------
+# DATA (be specific!)
+# -------------------------
+data/
+
+
+# Allow safe JSON if needed
+!data/*.json
+
+# -------------------------
+*_backup.py

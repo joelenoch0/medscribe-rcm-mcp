@@ -211,8 +211,7 @@ SUD_ICD10_PREFIXES = (
 # ─────────────────────────────────────────────────────────────
 mcp = FastMCP(
     "medscribe_rcm",
-    token_verifier=verifier,
-    instructions=(
+        instructions=(
         "MedScribe RCM-FastMCP is a denial-prevention Revenue Cycle Management pipeline. "
         "It extracts ICD-10/CPT codes, applies NOS/NEC sentinel intelligence, validates claim "
         "bundles against NCCI edits, and generates medically-justified appeal letters via MedGemma. "
