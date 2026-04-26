@@ -210,9 +210,9 @@ SUD_ICD10_PREFIXES = (
 # ─────────────────────────────────────────────────────────────
 # MCP SERVER INITIALIZATION
 # ─────────────────────────────────────────────────────────────
-mcp = FastMCP
-"medscribe_rcm",
-token_verifier=verifier,
+mcp = FastMCP(
+    "medscribe_rcm",
+    token_verifier=verifier,
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     instructions=(
         "MedScribe RCM-FastMCP is a denial-prevention Revenue Cycle Management pipeline. "
