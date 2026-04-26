@@ -1059,5 +1059,4 @@ async def health_check(request):
     })
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    mcp.run(host="0.0.0.0", port=port)
+    mcp.run(transport="streamable-http", allowed_hosts=["mcp.medscribepro.in", "localhost"])
