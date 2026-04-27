@@ -219,33 +219,6 @@ mcp = FastMCP(
         "All PHI is processed in RAM only. Consent verification runs before every tool."
     ),
 )
-from jose import jwt
-import requests
-
-JWKS_URL = "https://api.workos.com/.well-known/jwks.json"
-
-def require_auth(headers: dict):
-    auth = headers.get("authorization") or headers.get("Authorization")
-
-    if not auth:
-        raise ValueError("Missing Authorization header")
-
-    token = auth.replace("Bearer ", "")
-
-    # Fetch JWKS
-    jwks = requests.get(JWKS_URL).json()
-
-    try:
-        jwt.decode(
-            token,
-            jwks,
-            algorithms=["RS256"],
-            options={"verify_aud": False},
-        )
-    except Exception:
-        raise ValueError("Invalid or expired token")
-
-    return True
 
 # ─────────────────────────────────────────────────────────────
 # PYDANTIC MODELS — Input / Output
@@ -609,7 +582,6 @@ async def extract_codes_from_note(params: ExtractCodesInput, headers: dict = {})
     """
     meta = _meta("extract_codes_from_note", extra={"patient_token": params.patient_token[:8] + "***"})
     
-    require_auth(headers)
 
     # ── STEP 1: Consent Middleware ──────────────────────────────────────────────────
     approved, reason = _verify_consent(params.patient_token, payer="general", tool="extract_codes_from_note")
