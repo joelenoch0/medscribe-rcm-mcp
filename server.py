@@ -49,7 +49,7 @@ from supabase import Client, create_client
 
 load_dotenv()
 
-from webhook_handler import router as webhook_router
+from webhook_handler import webhook_routes
 
 # ─────────────────────────────────────────────────────────────
 # GLOBAL ONE-TIME INITIALIZATIONS
@@ -1077,5 +1077,5 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", "8000"))
     app = mcp.streamable_http_app()
-    app.include_router(webhook_router)
+    app.routes.extend(webhook_routes)
     uvicorn.run(app, host="0.0.0.0", port=port)

@@ -1,6 +1,5 @@
 """
 webhook_handler.py — Gumroad Ping receiver + Zoho SMTP welcome email
-Mounts as: POST /webhook/gumroad
 
 Required .env additions:
     ZOHO_SMTP_PASSWORD=your_zoho_app_password
@@ -14,12 +13,11 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-from fastapi import Request, Response
-from fastapi.routing import APIRouter
+from starlette.requests import Request
+from starlette.responses import Response
+from starlette.routing import Route
 
 log = logging.getLogger("medscribe.webhook")
-
-router = APIRouter()
 
 ZOHO_FROM = "contact@medscribepro.in"
 ZOHO_SMTP_HOST = os.getenv("ZOHO_SMTP_HOST", "smtp.zoho.in")
@@ -76,7 +74,6 @@ https://mcp.medscribepro.in
 
 
 def _send_welcome_email(to_address: str, buyer_name: str) -> None:
-    """Send welcome email via Zoho SMTP (SSL, port 465)."""
     msg = MIMEMultipart("alternative")
     msg["Subject"] = EMAIL_SUBJECT
     msg["From"] = ZOHO_FROM
@@ -90,12 +87,7 @@ def _send_welcome_email(to_address: str, buyer_name: str) -> None:
     log.info("welcome_email_sent to=%s", to_address)
 
 
-@router.post("/webhook/gumroad")
 async def gumroad_ping(request: Request) -> Response:
-    """
-    Receives Gumroad Ping (application/x-www-form-urlencoded or JSON).
-    Validates seller_id, then sends welcome email to the buyer.
-    """
     content_type = request.headers.get("content-type", "")
 
     if "application/json" in content_type:
@@ -104,7 +96,6 @@ async def gumroad_ping(request: Request) -> Response:
         form = await request.form()
         data = dict(form)
 
-    # Validate this ping is genuinely from our Gumroad account
     if not GUMROAD_SELLER_ID:
         log.error("GUMROAD_SELLER_ID not set — rejecting ping")
         return Response(status_code=500)
@@ -132,3 +123,7 @@ async def gumroad_ping(request: Request) -> Response:
         return Response(status_code=500)
 
     return Response(status_code=200)
+
+
+# Starlette route — mounted in server.py
+webhook_routes = [Route("/webhook/gumroad", gumroad_ping, methods=["POST"])]
