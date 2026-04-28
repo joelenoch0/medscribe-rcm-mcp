@@ -31,7 +31,10 @@ import json
 import os
 import re
 import uuid
+from dotenv import load_dotenv
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.server.auth.provider import AccessToken, TokenVerifier
+from mcp.server.auth.settings import AuthSettings
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
@@ -43,6 +46,8 @@ from presidio_analyzer import AnalyzerEngine
 from presidio_anonymizer import AnonymizerEngine
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from supabase import Client, create_client
+
+load_dotenv()
 
 # ─────────────────────────────────────────────────────────────
 # GLOBAL ONE-TIME INITIALIZATIONS
@@ -103,32 +108,62 @@ class WorkOSTokenVerifier:
     async def verify_token(self, token: str) -> AccessToken | None:
         try:
             import base64, json as _json
-            # Decode JWT header + payload (no signature verify yet — JWKS does that)
+            import jwt
+
+            # Step 1 — Decode header to get kid
             parts = token.split(".")
             if len(parts) != 3:
                 return None
-            # Pad and decode payload
-            payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
-            payload = _json.loads(base64.urlsafe_b64decode(payload_b64))
+            header_b64 = parts[0] + "=" * (-len(parts[0]) % 4)
+            header = _json.loads(base64.urlsafe_b64decode(header_b64))
+            kid = header.get("kid")
 
-            # Check expiry
-            import time
-            if payload.get("exp", 0) < time.time():
-                log.warning("JWT expired")
+            # Step 2 — Fetch JWKS (cached)
+            if not self._jwks_cache:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(self._jwks_uri, timeout=5)
+                    resp.raise_for_status()
+                    self._jwks_cache = resp.json()
+
+            # Step 3 — Find matching key by kid
+            public_key = None
+            for key_data in self._jwks_cache.get("keys", []):
+                if key_data.get("kid") == kid:
+                    from jwt.algorithms import RSAAlgorithm
+                    public_key = RSAAlgorithm.from_jwk(key_data)
+                    break
+
+            if public_key is None:
+                log.warning("JWT kid not found in JWKS")
                 return None
 
-            # Check scope
+            # Step 4 — Verify signature + claims
+            payload = jwt.decode(
+                token,
+                public_key,
+                algorithms=["RS256"],
+                issuer="https://api.workos.com",
+                options={"require": ["exp", "sub"]},
+            )
+
+            # Step 5 — Check scope
             scopes = payload.get("scope", "").split()
             if "rcm:use" not in scopes:
                 log.warning("JWT missing rcm:use scope")
                 return None
 
-            # Return AccessToken with client_id from sub claim
             return AccessToken(
                 token=token,
                 client_id=payload.get("sub", "unknown"),
                 scopes=scopes,
             )
+
+        except jwt.ExpiredSignatureError:
+            log.warning("JWT expired")
+            return None
+        except jwt.InvalidTokenError as exc:
+            log.warning("JWT invalid: %s", exc)
+            return None
         except Exception as exc:
             log.error("Token verification failed: %s", exc)
             return None
@@ -211,6 +246,12 @@ SUD_ICD10_PREFIXES = (
 # ─────────────────────────────────────────────────────────────
 mcp = FastMCP(
     "medscribe_rcm",
+    auth=AuthSettings(
+    issuer_url="https://api.workos.com",
+    resource_server_url="https://mcp.medscribepro.in",
+    required_scopes=["rcm:use"],
+),
+    token_verifier=verifier,
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     instructions=(
         "MedScribe RCM-FastMCP is a denial-prevention Revenue Cycle Management pipeline. "
@@ -219,7 +260,6 @@ mcp = FastMCP(
         "All PHI is processed in RAM only. Consent verification runs before every tool."
     ),
 )
-
 # ─────────────────────────────────────────────────────────────
 # PYDANTIC MODELS — Input / Output
 # ─────────────────────────────────────────────────────────────
