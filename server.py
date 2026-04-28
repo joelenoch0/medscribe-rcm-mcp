@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 import logging
 import sys
 logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
@@ -548,7 +548,6 @@ def _deterministic_appeal_template(context: str) -> str:
         "Per CMS Transmittal 3284 and applicable Medicare Claims Processing Manual Chapter 12, "
         "the services billed meet all coverage and medical necessity criteria. "
         "We respectfully request a full reconsideration of the denial.\n\n"
-        f"CLAIM CONTEXT:\n{context[:500]}\n\n"
         "We are prepared to provide additional supporting documentation upon request. "
         "Please contact our billing office within 30 days of receipt.\n\n"
         "Sincerely,\nMedScribe Professional Resources — Billing Department"
@@ -965,9 +964,10 @@ async def analyze_denial_and_appeal(params: AnalyzeDenialInput) -> str:
         _audit_log("analyze_denial_and_appeal", params.patient_token, params.payer, meta["trace_id"], f"BLOCKED:{reason}")
         return json.dumps({"error": "consent_denied", "reason": reason, "meta": meta}, indent=2)
 
+    NON_PHI_CLAIM_FIELDS = {"dos", "codes", "units", "npi", "cpt", "drg"}
     safe_claim = {}
     for k, v in params.claim_data.items():
-        if isinstance(v, str):
+        if isinstance(v, str) and k.lower() not in NON_PHI_CLAIM_FIELDS:
             safe_claim[k] = _redact_phi(v)
         else:
             safe_claim[k] = v
@@ -1005,8 +1005,7 @@ async def analyze_denial_and_appeal(params: AnalyzeDenialInput) -> str:
 
     prompt       = _build_medgemma_prompt(params.denial_code, params.payer, safe_claim, is_sud)
     appeal_text  = await _call_medgemma(prompt)
-    appeal_text  = _redact_phi(appeal_text)
-
+    
     _audit_log("analyze_denial_and_appeal", params.patient_token, params.payer, meta["trace_id"], "APPEAL_GENERATED")
 
     if params.compact:
