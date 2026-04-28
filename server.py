@@ -49,6 +49,8 @@ from supabase import Client, create_client
 
 load_dotenv()
 
+from webhook_handler import router as webhook_router
+
 # ─────────────────────────────────────────────────────────────
 # GLOBAL ONE-TIME INITIALIZATIONS
 # ─────────────────────────────────────────────────────────────
@@ -1074,4 +1076,6 @@ async def health_check(request):
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", "8000"))
-    uvicorn.run(mcp.streamable_http_app(), host="0.0.0.0", port=port)
+    app = mcp.streamable_http_app()
+    app.include_router(webhook_router)
+    uvicorn.run(app, host="0.0.0.0", port=port)
