@@ -50,6 +50,7 @@ from supabase import Client, create_client
 load_dotenv()
 
 from webhook_handler import webhook_routes
+from starlette.routing import Route
 from starlette.responses import JSONResponse
 
 async def register_handler(request: Request):
@@ -1077,6 +1078,7 @@ def _get_appeal_action(category: str) -> str:
 # ─────────────────────────────────────────────────────────────
 @mcp.custom_route("/health", methods=["GET"])
 async def health_check(request):
+    from starlette.routing import Route
     from starlette.responses import JSONResponse
     return JSONResponse({
         "status": "ok",
