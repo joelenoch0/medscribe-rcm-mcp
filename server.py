@@ -50,6 +50,19 @@ from supabase import Client, create_client
 load_dotenv()
 
 from webhook_handler import webhook_routes
+from starlette.responses import JSONResponse
+
+async def register_handler(request: Request):
+    return JSONResponse({
+        "client_id": os.getenv("WORKOS_CLIENT_ID"),
+        "client_secret": os.getenv("WORKOS_CLIENT_SECRET"),
+        "client_id_issued_at": 0,
+        "client_secret_expires_at": 0,
+        "grant_types": ["authorization_code"],
+        "token_endpoint_auth_method": "client_secret_basic"
+    })
+
+register_route = Route("/register", register_handler, methods=["POST"])
 
 # ─────────────────────────────────────────────────────────────
 # GLOBAL ONE-TIME INITIALIZATIONS
@@ -1077,4 +1090,5 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
     app = mcp.streamable_http_app()
     app.routes.extend(webhook_routes)
+    app.routes.extend([register_route])
     uvicorn.run(app, host="0.0.0.0", port=port)
