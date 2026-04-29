@@ -52,39 +52,19 @@ load_dotenv()
 from webhook_handler import webhook_routes
 from starlette.routing import Route
 from starlette.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
-async def register_handler(request: Request):
-    return JSONResponse({
-        "client_id": os.getenv("WORKOS_CLIENT_ID"),
-        "client_secret": os.getenv("WORKOS_CLIENT_SECRET"),
-        "client_id_issued_at": 0,
-        "client_secret_expires_at": 0,
-        "grant_types": ["authorization_code"],
-        "token_endpoint_auth_method": "client_secret_basic"
-    })
+class APIKeyMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        if request.url.path == "/health":
+            return await call_next(request)
+        api_key = os.getenv("MCP_API_KEY", "")
+        auth_header = request.headers.get("Authorization", "")
+        if not api_key or auth_header != f"Bearer {api_key}":
+            return Response("Unauthorized", status_code=401)
+        return await call_next(request)
 
-async def oauth_metadata_handler(request: Request):
-    base = "https://mcp.medscribepro.in"
-    return JSONResponse({
-        "issuer": base,
-        "authorization_endpoint": "https://api.workos.com/sso/authorize",
-        "token_endpoint": "https://api.workos.com/sso/token",
-        "registration_endpoint": f"{base}/register",
-        "scopes_supported": ["rcm:use"],
-        "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code"],
-        "code_challenge_methods_supported": ["S256"]
-    })
-
-async def protected_resource_handler(request: Request):
-    return JSONResponse({
-        "resource": "https://mcp.medscribepro.in/",
-        "authorization_servers": ["https://mcp.medscribepro.in"],
-        "scopes_supported": ["rcm:use"],
-        "bearer_methods_supported": ["header"]
-    })
-
-register_route = Route("/register", register_handler, methods=["POST"])
 oauth_metadata_route = Route("/.well-known/oauth-authorization-server", oauth_metadata_handler, methods=["GET"])
 protected_resource_route = Route("/.well-known/oauth-protected-resource", protected_resource_handler, methods=["GET"])
 
@@ -1106,8 +1086,9 @@ async def health_check(request):
 
 if __name__ == "__main__":
     import uvicorn
+    from starlette.middleware import Middleware
     port = int(os.getenv("PORT", "8000"))
     app = mcp.streamable_http_app()
-    app.routes[:0] = [register_route, oauth_metadata_route, protected_resource_route]
+    app.add_middleware(APIKeyMiddleware)
     app.routes.extend(webhook_routes)
     uvicorn.run(app, host="0.0.0.0", port=port)
