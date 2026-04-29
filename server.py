@@ -285,12 +285,6 @@ SUD_ICD10_PREFIXES = (
 # ─────────────────────────────────────────────────────────────
 mcp = FastMCP(
     "medscribe_rcm",
-    auth=AuthSettings(
-    issuer_url="https://api.workos.com",
-    resource_server_url="https://mcp.medscribepro.in",
-    required_scopes=["rcm:use"],
-),
-    token_verifier=verifier,
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     instructions=(
         "MedScribe RCM-FastMCP is a denial-prevention Revenue Cycle Management pipeline. "
