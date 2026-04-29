@@ -1114,6 +1114,6 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", "8000"))
     app = mcp.streamable_http_app()
+    app.routes[:0] = [register_route, oauth_metadata_route, protected_resource_route]
     app.routes.extend(webhook_routes)
-    app.routes.extend([register_route, oauth_metadata_route, protected_resource_route])
     uvicorn.run(app, host="0.0.0.0", port=port)
