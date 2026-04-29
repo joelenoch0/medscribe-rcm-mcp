@@ -63,7 +63,6 @@ async def register_handler(request: Request):
         "token_endpoint_auth_method": "client_secret_basic"
     })
 
-register_route = Route("/register", register_handler, methods=["POST"])
 async def oauth_metadata_handler(request: Request):
     base = "https://mcp.medscribepro.in"
     return JSONResponse({
@@ -77,11 +76,17 @@ async def oauth_metadata_handler(request: Request):
         "code_challenge_methods_supported": ["S256"]
     })
 
-oauth_metadata_route = Route(
-    "/.well-known/oauth-authorization-server",
-    oauth_metadata_handler,
-    methods=["GET"]
-)
+async def protected_resource_handler(request: Request):
+    return JSONResponse({
+        "resource": "https://mcp.medscribepro.in/",
+        "authorization_servers": ["https://mcp.medscribepro.in"],
+        "scopes_supported": ["rcm:use"],
+        "bearer_methods_supported": ["header"]
+    })
+
+register_route = Route("/register", register_handler, methods=["POST"])
+oauth_metadata_route = Route("/.well-known/oauth-authorization-server", oauth_metadata_handler, methods=["GET"])
+protected_resource_route = Route("/.well-known/oauth-protected-resource", protected_resource_handler, methods=["GET"])
 
 # ─────────────────────────────────────────────────────────────
 # GLOBAL ONE-TIME INITIALIZATIONS
@@ -1110,6 +1115,5 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
     app = mcp.streamable_http_app()
     app.routes.extend(webhook_routes)
-    app.routes.extend([register_route])
-    app.routes.extend([register_route, oauth_metadata_route])
+    app.routes.extend([register_route, oauth_metadata_route, protected_resource_route])
     uvicorn.run(app, host="0.0.0.0", port=port)
