@@ -65,9 +65,6 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             return Response("Unauthorized", status_code=401)
         return await call_next(request)
 
-oauth_metadata_route = Route("/.well-known/oauth-authorization-server", oauth_metadata_handler, methods=["GET"])
-protected_resource_route = Route("/.well-known/oauth-protected-resource", protected_resource_handler, methods=["GET"])
-
 # ─────────────────────────────────────────────────────────────
 # GLOBAL ONE-TIME INITIALIZATIONS
 # ─────────────────────────────────────────────────────────────
