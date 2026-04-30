@@ -1044,7 +1044,7 @@ async def analyze_denial_and_appeal(params: AnalyzeDenialInput) -> str:
         },
         "appeal_letter":     appeal_text,
         "appeal_model":      "MedGemma (Vertex AI)" if MEDGEMMA_PROJECT else "deterministic_template",
-        "regulatory_basis":  ["CMS-0057-F", "CMS Transmittal 3284", "42 CFR Part 2" if is_sud else None],
+        "regulatory_basis":  [r for r in ["CMS-0057-F", "CMS Transmittal 3284", "42 CFR Part 2" if is_sud else None] if r is not None],
         "is_sud_related":    is_sud,
         "part2_notice": (
             "42 CFR Part 2: This appeal involves SUD treatment data. "
