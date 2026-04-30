@@ -57,7 +57,13 @@ from starlette.responses import Response
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
-        if request.url.path == "/health":
+        exempt = [
+            "/health",
+            "/register",
+            "/.well-known/oauth-protected-resource",
+            "/.well-known/oauth-authorization-server",
+        ]
+        if any(request.url.path.startswith(p) for p in exempt):
             return await call_next(request)
         api_key = os.getenv("MCP_API_KEY", "")
         auth_header = request.headers.get("Authorization", "")
