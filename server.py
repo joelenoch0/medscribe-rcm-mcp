@@ -257,7 +257,89 @@ NEC_PATTERN = re.compile(
     r"\b(NEC|not elsewhere classified|other specified|other and unspecified|residual)\b",
     re.IGNORECASE,
 )
+# ─────────────────────────────────────────────────────────────
+# STAGE 2: DOCUMENTATION SUPPORT ENGINE
+# Source: Kiran Kumar BC (forensic AR recovery specialist)
+# Pattern: Narrative-to-Code Alignment
+# ─────────────────────────────────────────────────────────────
 
+DOC_SUPPORT_MAP: Dict[str, Dict[str, List[str]]] = {
+    "M54.50": {
+        "M54.51": ["vertebrogenic", "L4-L5", "L5-S1", "disc", "vertebral"],
+        "M54.59": ["radiculopathy", "radiating", "sciatica", "nerve root", "foraminal stenosis", "intractable", "failed conservative therapy"],
+        "M54.41": ["left", "left side", "left lower"],
+        "M54.42": ["right", "right side", "right lower"],
+    },
+    "E11.9": {
+        "E11.40": ["neuropathy", "peripheral neuropathy", "nerve damage", "intractable"],
+        "E11.65": ["CKD", "nephropathy", "renal", "failed conservative therapy"],
+        "E11.311": ["retinopathy", "diabetic eye", "vision changes"],
+        "E11.51": ["peripheral vascular", "PVD", "circulation"],
+    },
+    "F41.9": {
+        "F41.0": ["panic", "panic attack", "palpitations", "sudden onset", "intractable anxiety"],
+        "F41.1": ["generalized", "chronic worry", "failed conservative therapy", "GAD", "excessive worry"],
+    },
+    "F32.9": {
+        "F32.0": ["mild", "minimal symptoms"],
+        "F32.1": ["moderate", "functional limitation"],
+        "F32.2": ["severe", "intractable depression", "failed conservative therapy", "refractory"],
+    },
+    "R10.9": {
+        "R10.11": ["right upper", "RUQ", "epigastric"],
+        "R10.31": ["right lower", "RLQ", "appendix"],
+        "R10.12": ["left upper", "LUQ"],
+        "R10.32": ["left lower", "LLQ"],
+    },
+    "J06.9": {
+        "J02.9": ["pharyngitis", "throat", "sore throat"],
+        "J04.0": ["laryngitis", "hoarse", "voice"],
+        "J00":   ["rhinorrhea", "nasal", "cold symptoms"],
+    },
+    "R51.9": {
+        "G43.909": ["migraine", "aura", "throbbing", "intractable headache", "failed conservative therapy"],
+        "R51.0":   ["orthostatic", "positional headache"],
+    },
+    "M79.9": {
+        "M79.1": ["myalgia", "muscle pain", "fibromyalgia"],
+        "M79.3": ["panniculitis", "subcutaneous", "nodular"],
+    },
+    "G89.29": {
+        "G89.21": ["post-procedural", "post-surgical", "post-op pain"],
+        "G89.28": ["chronic intractable", "failed conservative therapy", "refractory pain"],
+    },
+    "K59.00": {
+        "K59.01": ["slow transit", "colonic inertia"],
+        "K59.02": ["outlet dysfunction", "pelvic floor", "obstructive"],
+    },
+    "K21.9": {
+        "K21.0": ["esophagitis", "erosive", "Barrett", "intractable reflux", "failed conservative therapy"],
+    },
+}
+
+SEVERITY_UPGRADE_TRIGGERS: List[str] = [
+    "intractable",
+    "failed conservative therapy",
+    "refractory",
+    "chronic unresponsive",
+    "not responding to treatment",
+    "persistent despite treatment",
+    "escalating",
+    "worsening despite",
+    "functional limitation",
+    "unable to perform",
+    "activities of daily living",
+    "ADL impairment",
+]
+
+ANATOMICAL_LANDMARKS: List[str] = [
+    "L1", "L2", "L3", "L4", "L5",
+    "S1", "S2", "C3", "C4", "C5", "C6", "C7",
+    "L4-L5", "L5-S1", "C5-C6",
+    "radiculopathy", "foraminal stenosis",
+    "nerve root compression", "disc herniation",
+    "lateral recess", "central stenosis",
+]
 # SUD diagnosis prefix list — triggers 42 CFR Part 2 handling
 SUD_ICD10_PREFIXES = (
     "F10", "F11", "F12", "F13", "F14", "F15", "F16", "F17", "F18", "F19",
@@ -466,7 +548,66 @@ def _audit_log(tool: str, patient_token: str, payer: str, trace_id: str, status:
 # ─────────────────────────────────────────────────────────────
 # NOS/NEC ENGINE — called by Tool 2 only
 # ─────────────────────────────────────────────────────────────
+def _check_documentation_support(code: str, note_text: str) -> Dict[str, Any]:
+    """
+    Stage 2: Narrative-to-Code Alignment.
+    Scans Procedure Note for severity descriptors, anatomical landmarks,
+    and code-specific keywords that justify upgrading a sentinel code.
+    Pattern sourced from forensic AR recovery specialist Kiran Kumar BC.
+    """
+    note_lower = note_text.lower()
 
+    severity_hits = [t for t in SEVERITY_UPGRADE_TRIGGERS if t.lower() in note_lower]
+    anatomical_hits = [a for a in ANATOMICAL_LANDMARKS if a.lower() in note_lower]
+
+    if code not in DOC_SUPPORT_MAP:
+        if severity_hits or anatomical_hits:
+            return {
+                "supported_upgrade": None,
+                "evidence": severity_hits + anatomical_hits,
+                "confidence": 0.60,
+                "time_to_read_gap": True,
+                "severity_triggers": severity_hits,
+                "anatomical_landmarks": anatomical_hits,
+                "recommendation": "Severity/anatomical language found — manual Procedure Note review recommended for specificity upgrade",
+            }
+        return {
+            "supported_upgrade": None,
+            "evidence": [],
+            "confidence": 0,
+            "time_to_read_gap": False,
+            "severity_triggers": [],
+            "anatomical_landmarks": [],
+            "recommendation": "No documentation support found — request provider addendum",
+        }
+
+    best_code = None
+    best_evidence: List[str] = []
+
+    for specific_code, keywords in DOC_SUPPORT_MAP[code].items():
+        evidence = [kw for kw in keywords if kw.lower() in note_lower]
+        if evidence and len(evidence) > len(best_evidence):
+            best_code = specific_code
+            best_evidence = evidence
+
+    all_evidence = list(set(best_evidence + severity_hits + anatomical_hits))
+
+    return {
+        "supported_upgrade": best_code,
+        "evidence": all_evidence,
+        "confidence": min(0.95, 0.60 + len(all_evidence) * 0.08),
+        "time_to_read_gap": best_code is not None,
+        "severity_triggers": severity_hits,
+        "anatomical_landmarks": anatomical_hits,
+        "recommendation": (
+            f"Documentation supports upgrade to {best_code} — safe to recode. "
+            f"Evidence: {', '.join(best_evidence)}"
+        ) if best_code else (
+            "Severity language present — manual Procedure Note review recommended"
+            if severity_hits else
+            "No specific upgrade found — request provider addendum"
+        ),
+    }
 def _detect_nos_nec_in_text(text: str) -> Dict[str, Any]:
     nos_matches = NOS_PATTERN.findall(text)
     nec_matches = NEC_PATTERN.findall(text)
@@ -492,8 +633,8 @@ def _check_sentinel_codes(codes: List[str]) -> List[Dict[str, Any]]:
                 "denial_risk":   info["risk"],
                 "safer_codes":   info["safer"],
                 "action":        "Replace with more specific code or add supporting documentation",
+                "documentation_support": None,
             })
-    return flagged
 
 
 def _apply_payer_warnings(codes: List[str], payer_rules: Dict[str, Any]) -> List[str]:
@@ -754,6 +895,10 @@ async def suggest_codes_with_context(params: SuggestCodesInput) -> str:
     all_codes_in_note = icd_in_note + cpt_in_note
 
     flagged_sentinels = _check_sentinel_codes(icd_in_note)
+for sentinel in flagged_sentinels:
+    sentinel["documentation_support"] = _check_documentation_support(
+        sentinel["code"], params.note_text
+    )
     payer_warnings = _apply_payer_warnings(all_codes_in_note, payer_rules)
     text_scan = _detect_nos_nec_in_text(clean_note)
 
