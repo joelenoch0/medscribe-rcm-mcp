@@ -635,6 +635,7 @@ def _check_sentinel_codes(codes: List[str]) -> List[Dict[str, Any]]:
                 "action":        "Replace with more specific code or add supporting documentation",
                 "documentation_support": None,
             })
+    return flagged
 
 
 def _apply_payer_warnings(codes: List[str], payer_rules: Dict[str, Any]) -> List[str]:
