@@ -1,4 +1,5 @@
 from __future__ import annotations
+import code
 import logging
 import sys
 logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
@@ -932,8 +933,9 @@ async def suggest_codes_with_context(params: SuggestCodesInput) -> str:
     for code in icd_in_note:
         if code in sentinel_code_set:
             match = ALL_SENTINELS[code]
-            safer = match["safer"].split(",")[0].strip()
-            optimized_codes.append({"original": code, "suggested": safer, "action": "REPLACE"})
+            doc_support = next((s.get("documentation_support") for s in flagged_sentinels if s["code"] == code), None)
+            suggested = (doc_support.get("supported_upgrade") or match["safer"].split(",")[0].strip()) if doc_support else match["safer"].split(",")[0].strip()
+            optimized_codes.append({"original": code, "suggested": suggested, "action": "REPLACE"})
         else:
             optimized_codes.append({"original": code, "suggested": code, "action": "KEEP"})
 
