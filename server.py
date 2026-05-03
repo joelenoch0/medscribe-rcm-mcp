@@ -895,10 +895,10 @@ async def suggest_codes_with_context(params: SuggestCodesInput) -> str:
     all_codes_in_note = icd_in_note + cpt_in_note
 
     flagged_sentinels = _check_sentinel_codes(icd_in_note)
-for sentinel in flagged_sentinels:
-    sentinel["documentation_support"] = _check_documentation_support(
-        sentinel["code"], params.note_text
-    )
+    for sentinel in flagged_sentinels:
+        sentinel["documentation_support"] = _check_documentation_support(
+            sentinel["code"], params.note_text
+        )
     payer_warnings = _apply_payer_warnings(all_codes_in_note, payer_rules)
     text_scan = _detect_nos_nec_in_text(clean_note)
 
