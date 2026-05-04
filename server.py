@@ -316,6 +316,90 @@ DOC_SUPPORT_MAP: Dict[str, Dict[str, List[str]]] = {
     "K21.9": {
         "K21.0": ["esophagitis", "erosive", "Barrett", "intractable reflux", "failed conservative therapy"],
     },
+    # ── NOS: remaining 1 ─────────────────────────────────────────────────────────────────────────────
+    "I10": {
+        "I16.0":  ["hypertensive urgency", "urgency", "severely elevated", "BP > 180", "BP over 180"],
+        "I16.1":  ["hypertensive emergency", "end-organ damage", "encephalopathy", "papilledema"],
+        "I11.9":  ["hypertensive heart", "heart failure", "LVH", "left ventricular hypertrophy"],
+        "I12.9":  ["hypertensive CKD", "CKD", "chronic kidney", "renal insufficiency", "nephropathy"],
+        "I13.10": ["hypertensive heart and CKD", "cardiac and renal", "combined"],
+    },
+    # ── NEC: remaining 10 ────────────────────────────────────────────────────────────────────────
+    "Z79.899": {
+        "Z79.01":  ["anticoagulant", "warfarin", "coumadin", "heparin", "enoxaparin", "apixaban", "rivaroxaban"],
+        "Z79.02":  ["antiplatelet", "antithrombotic", "clopidogrel", "ticagrelor", "prasugrel"],
+        "Z79.1":   ["antidiabetic", "metformin", "glipizide", "glimepiride", "non-insulin diabetes medication"],
+        "Z79.4":   ["insulin", "insulin-dependent", "insulin therapy", "basal insulin", "bolus insulin"],
+        "Z79.52":  ["systemic steroid", "prednisone", "dexamethasone", "methylprednisolone", "long-term steroid"],
+        "Z79.51":  ["inhaled steroid", "fluticasone", "budesonide", "inhaled corticosteroid"],
+        "Z79.82":  ["bisphosphonate", "alendronate", "zoledronic acid", "osteoporosis medication"],
+        "Z79.83":  ["aromatase inhibitor", "anastrozole", "letrozole", "exemestane"],
+        "Z79.810": ["aspirin therapy", "daily aspirin", "low-dose aspirin", "aspirin 81mg"],
+        "Z79.84":  ["oral contraceptive", "birth control pill", "OCP", "combined oral contraceptive"],
+    },
+    "M79.3": {
+        "L93.2":  ["lupus", "lupus panniculitis", "SLE", "systemic lupus", "lupus erythematosus profundus"],
+        "M35.6":  ["relapsing", "Weber-Christian", "relapsing febrile nodular panniculitis", "recurrent nodules"],
+        "L92.3":  ["foreign body", "injected substance", "silicone", "injection site"],
+    },
+    "R68.89": {
+        "R68.81": ["early satiety", "postprandial fullness", "unable to finish meals", "satiety after small meals"],
+        "R68.82": ["decreased libido", "decreased sex drive", "loss of libido", "hypoactive sexual desire"],
+        "R11.0":  ["nausea", "nausea without vomiting"],
+        "R63.0":  ["anorexia", "loss of appetite", "reduced appetite", "poor oral intake"],
+    },
+    "K92.89": {
+        "K92.81": ["mucositis", "GI mucositis", "gastrointestinal mucositis", "chemotherapy-induced mucositis"],
+        "K57.30": ["diverticulosis", "diverticular disease", "diverticula", "colonic diverticula"],
+        "K92.1":  ["melena", "black tarry stool", "GI bleed", "upper GI bleeding"],
+        "K92.0":  ["hematemesis", "vomiting blood", "coffee ground emesis"],
+    },
+    "M06.9": {
+        "M06.011": ["right shoulder", "right shoulder joint", "right shoulder pain", "right shoulder swelling"],
+        "M06.021": ["right elbow"],
+        "M06.031": ["right wrist"],
+        "M06.041": ["right hand", "right MCP", "right PIP", "right fingers"],
+        "M06.061": ["right knee"],
+        "M06.071": ["right ankle", "right foot"],
+        "M06.09":  ["multiple joints", "bilateral", "symmetric", "polyarthritis", "generalized"],
+        "M06.00":  ["seropositive", "RF positive", "RF elevated", "anti-CCP positive"],
+        "M06.80":  ["seronegative", "RF negative", "anti-CCP negative", "seronegative RA"],
+    },
+    "L98.9": {
+        "L89.159": ["pressure ulcer sacrum", "sacral ulcer", "coccyx ulcer", "sacrum", "coccyx", "pressure injury"],
+        "L89.619": ["pressure ulcer heel", "heel ulcer", "heel pressure injury", "heel wound"],
+        "L97.419": ["venous ulcer", "stasis ulcer", "chronic leg ulcer", "non-pressure chronic ulcer"],
+        "L97.119": ["thigh ulcer", "non-pressure ulcer thigh"],
+        "L89.314": ["stage 4", "full thickness", "bone exposed", "tendon exposed"],
+        "L89.313": ["stage 3", "full thickness skin loss", "subcutaneous tissue visible"],
+        "L89.312": ["stage 2", "partial thickness", "blister", "shallow open ulcer"],
+    },
+    "R41.89": {
+        "R41.3":  ["amnesia", "memory loss", "blackout", "unable to recall", "anterograde", "retrograde"],
+        "R41.81": ["age-related cognitive decline", "age-related", "normal aging", "senior forgetfulness"],
+        "F06.70": ["mild cognitive impairment", "MCI", "mild neurocognitive disorder", "early cognitive impairment"],
+        "R41.0":  ["disorientation", "confused", "confusion", "disoriented to time", "disoriented to place"],
+    },
+    "Z87.891": {
+        "Z87.398": ["history of substance use", "history of drug use", "prior substance use disorder", "former addiction", "in recovery", "sobriety"],
+        "Z87.39":  ["history of mental health condition", "past psychiatric history", "previous mental health treatment"],
+        "F10.20":  ["alcohol use disorder", "alcohol dependence", "active alcoholism", "current AUD"],
+        "F11.20":  ["opioid use disorder", "opioid dependence", "active OUD", "current opioid use"],
+    },
+    "G89.9": {
+        "G89.11": ["acute pain due to trauma", "traumatic", "injury", "post-traumatic pain", "accident", "fracture pain"],
+        "G89.12": ["acute post-procedural pain", "post-surgical", "post-op pain", "procedure-related pain"],
+        "G89.29": ["chronic pain", "chronic intractable", "long-standing pain", "persistent pain", "failed conservative therapy", "refractory"],
+        "G89.3":  ["neoplasm-related pain", "cancer pain", "tumor pain", "malignancy-related", "oncology pain"],
+        "G89.4":  ["chronic pain syndrome", "pain syndrome", "central sensitization", "widespread pain"],
+    },
+    "J98.9": {
+        "J98.01": ["dry pleurisy", "pleuritis", "pleuritic chest pain", "pleural rub", "pleural inflammation"],
+        "J98.11": ["atelectasis", "collapse", "subsegmental atelectasis", "plate-like atelectasis", "lobar collapse"],
+        "J90":    ["pleural effusion", "pleural fluid", "fluid in pleura", "thoracentesis"],
+        "J98.2":  ["interstitial emphysema", "mediastinal emphysema", "pneumomediastinum"],
+        "J80":    ["ARDS", "acute respiratory distress syndrome", "acute lung injury", "ALI"],
+    },
 }
 
 SEVERITY_UPGRADE_TRIGGERS: List[str] = [
