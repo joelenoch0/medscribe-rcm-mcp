@@ -204,6 +204,16 @@ if _SUPABASE_URL and _SUPABASE_KEY:
     except Exception as exc:
         log.warning("Supabase init failed (non-fatal): %s", exc)
 
+# Supabase audit client — service key ONLY, bypasses RLS for audit writes
+# anon_insert_audit policy has been dropped; only service key can write audit_log
+_SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+SUPABASE_AUDIT: Optional[Client] = None
+if _SUPABASE_URL and _SUPABASE_SERVICE_KEY:
+    try:
+        SUPABASE_AUDIT = create_client(_SUPABASE_URL, _SUPABASE_SERVICE_KEY)
+    except Exception as exc:
+        log.warning("Supabase audit client init failed (non-fatal): %s", exc)
+
 # MedGemma — Google Vertex AI endpoint for appeal generation (Tool 4)
 MEDGEMMA_ENDPOINT = os.getenv(
     "MEDGEMMA_ENDPOINT",
@@ -613,12 +623,14 @@ def _verify_consent(patient_token: str, payer: str, tool: str) -> Tuple[bool, st
 
 
 def _audit_log(tool: str, patient_token: str, payer: str, trace_id: str, status: str) -> None:
-    """Write PHI-free audit event to Supabase audit_log table (non-blocking)."""
-    if not SUPABASE:
-        log.info("AUDIT | tool=%s | token=%s*** | payer=%s | status=%s", tool, patient_token[:6], payer, status)
+    """Write PHI-free audit event to Supabase audit_log table (non-blocking).
+    Uses service key client only — anon key has no INSERT access to audit_log.
+    """
+    log.info("AUDIT | tool=%s | token=%s*** | payer=%s | status=%s", tool, patient_token[:6], payer, status)
+    if not SUPABASE_AUDIT:
         return
     try:
-        SUPABASE.table("audit_log").insert({
+        SUPABASE_AUDIT.table("audit_log").insert({
             "tool":          tool,
             "patient_token": patient_token,
             "payer":         payer,
