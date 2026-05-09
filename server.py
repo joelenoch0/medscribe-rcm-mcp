@@ -42,7 +42,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 import spacy
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Context
 from presidio_analyzer import AnalyzerEngine
 from presidio_anonymizer import AnonymizerEngine
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -843,6 +843,46 @@ def _build_medgemma_prompt(
 
 
 # ─────────────────────────────────────────────────────────────
+# SAMPLING HELPER — agent-to-agent via MCP ctx.sample()
+# Priority: 1) MCP sampling (Claude) → 2) MedGemma → 3) deterministic template
+# ─────────────────────────────────────────────────────────────
+
+async def _generate_appeal_with_sampling(
+    prompt: str,
+    ctx: Context | None = None,
+) -> tuple[str, str]:
+    """
+    Returns (appeal_text, source_label).
+    Tries MCP native sampling first — routes through the connected LLM client
+    (Claude Desktop / Claude.ai) with zero additional API keys.
+    Falls back to MedGemma, then deterministic template.
+    """
+    # 1 ── MCP native sampling (ctx from connected Claude client)
+    if ctx is not None:
+        try:
+            result = await ctx.sample(
+                messages=prompt,
+                system_prompt=(
+                    "You are a certified medical billing and coding specialist "
+                    "with 20+ years of RCM experience. Generate a formal, "
+                    "medically justified, PHI-free appeal letter. "
+                    "Use CMS-0057-F aligned language. Be concise and professional."
+                ),
+                max_tokens=600,
+            )
+            if result and result.text:
+                log.info("Appeal generated via MCP sampling (Claude)")
+                return result.text, "mcp_sampling:claude"
+        except Exception as exc:
+            log.warning("ctx.sample() failed: %s — falling back to MedGemma", exc)
+
+    # 2 ── MedGemma (unchanged fallback)
+    text = await _call_medgemma(prompt)
+    source = "MedGemma (Vertex AI)" if MEDGEMMA_PROJECT else "deterministic_template"
+    return text, source
+
+
+# ─────────────────────────────────────────────────────────────
 # TOOL 1: extract_codes_from_note
 # ─────────────────────────────────────────────────────────────
 
@@ -1199,7 +1239,7 @@ async def validate_claim_bundle(params: ValidateClaimInput) -> str:
         "openWorldHint": False,
     },
 )
-async def analyze_denial_and_appeal(params: AnalyzeDenialInput) -> str:
+async def analyze_denial_and_appeal(params: AnalyzeDenialInput, ctx: Context = None) -> str:
     """
     Analyze an insurance denial, identify root cause, and generate a clinically accurate
     appeal letter using MedGemma (Google Vertex AI medical language model).
@@ -1263,7 +1303,7 @@ async def analyze_denial_and_appeal(params: AnalyzeDenialInput) -> str:
     ) if sentinel_hits else None
 
     prompt       = _build_medgemma_prompt(params.denial_code, params.payer, safe_claim, is_sud)
-    appeal_text  = await _call_medgemma(prompt)
+    appeal_text, appeal_source = await _generate_appeal_with_sampling(prompt, ctx)
     
     _audit_log("analyze_denial_and_appeal", params.patient_token, params.payer, meta["trace_id"], "APPEAL_GENERATED")
 
@@ -1287,7 +1327,7 @@ async def analyze_denial_and_appeal(params: AnalyzeDenialInput) -> str:
             "recommended_action":  _get_appeal_action(denial_info.get("category", "unknown")),
         },
         "appeal_letter":     appeal_text,
-        "appeal_model":      "MedGemma (Vertex AI)" if MEDGEMMA_PROJECT else "deterministic_template",
+        "appeal_model":      appeal_source,
         "regulatory_basis":  [r for r in ["CMS-0057-F", "CMS Transmittal 3284", "42 CFR Part 2" if is_sud else None] if r is not None],
         "is_sud_related":    is_sud,
         "part2_notice": (
