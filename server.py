@@ -876,7 +876,29 @@ async def _generate_appeal_with_sampling(
         except Exception as exc:
             log.warning("ctx.sample() failed: %s — falling back to MedGemma", exc)
 
-    # 2 ── MedGemma (unchanged fallback)
+    # 2 ── Anthropic API direct (fires when ANTHROPIC_API_KEY is set)
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if anthropic_key:
+        try:
+            import anthropic as _anthropic
+            _client = _anthropic.Anthropic(api_key=anthropic_key)
+            r = _client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=600,
+                system=(
+                    "You are a certified medical billing and coding specialist "
+                    "with 20+ years of RCM experience. Generate a formal, "
+                    "medically justified, PHI-free appeal letter. "
+                    "Use CMS-0057-F aligned language. Be concise under 250 words."
+                ),
+                messages=[{"role": "user", "content": prompt}],
+            )
+            log.info("Appeal generated via Anthropic API")
+            return r.content[0].text, "anthropic_api:claude-sonnet-4-6"
+        except Exception as exc:
+            log.warning("Anthropic API call failed: %s — falling back to MedGemma", exc)
+
+    # 3 ── MedGemma (unchanged fallback)
     text = await _call_medgemma(prompt)
     source = "MedGemma (Vertex AI)" if MEDGEMMA_PROJECT else "deterministic_template"
     return text, source
