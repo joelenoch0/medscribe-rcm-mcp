@@ -51,6 +51,7 @@ from supabase import Client, create_client
 load_dotenv()
 
 from webhook_handler import webhook_routes
+from tool_coverage_lookup import run_coverage_lookup
 from starlette.routing import Route
 from starlette.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -494,6 +495,12 @@ class AnalyzeDenialInput(BaseModel):
     claim_data:    Dict[str, Any] = Field(...,           description="Non-PHI claim metadata: codes, DOS, units, provider NPI")
     patient_token: str        = Field(..., min_length=4, description="Hashed patient token for consent lookup")
     compact:       bool       = Field(False,             description="Return minimal response")
+
+class CoverageLookupInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    cpt_code: str = Field(..., min_length=5, max_length=5, description="CPT procedure code (5 digits)")
+    state:    str = Field(..., min_length=2, max_length=2, description="Two-letter US state abbreviation (e.g. TX, FL)")
+    payer:    str = Field("MEDICARE", min_length=2,         description="Payer name — defaults to MEDICARE")
 
 # ─────────────────────────────────────────────────────────────
 # SHARED PIPELINE HELPERS
@@ -1378,6 +1385,46 @@ def _get_appeal_action(category: str) -> str:
         "unknown":     "Manual review required — contact payer provider services for denial reason clarification",
     }
     return actions.get(category, actions["unknown"])
+
+
+# ─────────────────────────────────────────────────────────────
+# TOOL 5: lookup_coverage_policy
+# ─────────────────────────────────────────────────────────────
+
+@mcp.tool(
+    name="lookup_coverage_policy",
+    annotations={
+        "title": "NCD + LCD Coverage Policy Lookup",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
+async def lookup_coverage_policy(params: CoverageLookupInput) -> str:
+    """
+    Returns the applicable Medicare NCD and LCD for a CPT code given state.
+
+    Maps state → MAC contractor → checks Supabase cache (7-day TTL) →
+    hits CMS Medicare Coverage Database API if stale → caches result.
+
+    Args:
+        params (CoverageLookupInput):
+            cpt_code (str): 5-digit CPT code (e.g. 99183)
+            state (str): Two-letter state abbreviation (e.g. TX)
+            payer (str): Payer name — defaults to MEDICARE
+
+    Returns:
+        str: JSON with applicable NCD/LCD policy IDs, titles, coverage
+             summary, documentation checklist, and MAC contractor name
+    """
+    return await run_coverage_lookup(
+        cpt_code=params.cpt_code,
+        state=params.state,
+        payer=params.payer,
+        supabase_client=SUPABASE,
+        meta_fn=_meta,
+    )
 
 
 # ─────────────────────────────────────────────────────────────

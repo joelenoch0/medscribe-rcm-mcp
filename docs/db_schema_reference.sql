@@ -56,3 +56,46 @@ CREATE POLICY "service_role_write" ON audit_log
 INSERT INTO consent_registry (patient_token, consent_granted, consent_type, active)
 VALUES ('test_hashed_token_001', TRUE, 'general', TRUE)
 ON CONFLICT DO NOTHING;
+
+-- ── Coverage Policy Cache (NCD + LCD lookup) ─────────────────────────────
+-- Caches CMS API responses for NCD/LCD policy lookups.
+-- Refreshed weekly. No PHI stored.
+
+CREATE TABLE IF NOT EXISTS coverage_policy (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    policy_type      TEXT NOT NULL CHECK (policy_type IN ('NCD', 'LCD')),
+    policy_id        TEXT NOT NULL,          -- e.g. 'NCD-20.29', 'LCD-L33761'
+    cpt_codes        TEXT[] DEFAULT '{}',    -- associated CPT codes
+    mac_name         TEXT,                   -- e.g. 'Novitas Solutions'
+    states           TEXT[] DEFAULT '{}',    -- MAC jurisdiction states
+    title            TEXT NOT NULL,
+    coverage_summary TEXT,
+    doc_checklist    JSONB DEFAULT '[]',     -- required documentation items
+    effective_date   DATE,
+    fetched_at       TIMESTAMPTZ DEFAULT NOW(),
+    created_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_coverage_policy_id
+    ON coverage_policy(policy_id, COALESCE(mac_name, ''));
+
+CREATE INDEX IF NOT EXISTS idx_coverage_cpt
+    ON coverage_policy USING GIN(cpt_codes);
+
+CREATE INDEX IF NOT EXISTS idx_coverage_states
+    ON coverage_policy USING GIN(states);
+
+CREATE INDEX IF NOT EXISTS idx_coverage_fetched
+    ON coverage_policy(fetched_at DESC);
+
+-- RLS: anon can read (no PHI); only service role writes
+ALTER TABLE coverage_policy ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "anon_read_coverage" ON coverage_policy
+    FOR SELECT USING (TRUE);
+
+CREATE POLICY "service_write_coverage" ON coverage_policy
+    FOR INSERT WITH CHECK (TRUE);
+
+CREATE POLICY "service_update_coverage" ON coverage_policy
+    FOR UPDATE USING (TRUE);
