@@ -52,6 +52,7 @@ load_dotenv()
 
 from webhook_handler import webhook_routes
 from tool_coverage_lookup import run_coverage_lookup
+from tool_charge_capture import run_charge_capture
 from starlette.routing import Route
 from starlette.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -501,6 +502,14 @@ class CoverageLookupInput(BaseModel):
     cpt_code: str = Field(..., min_length=5, max_length=5, description="CPT procedure code (5 digits)")
     state:    str = Field(..., min_length=2, max_length=2, description="Two-letter US state abbreviation (e.g. TX, FL)")
     payer:    str = Field("MEDICARE", min_length=2,         description="Payer name — defaults to MEDICARE")
+
+class ChargeCaptureInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    cpt_code:         str            = Field(..., min_length=5, max_length=5, description="CPT procedure code (5 digits)")
+    state:            str            = Field(..., min_length=2, max_length=2, description="Two-letter US state abbreviation (e.g. TX, FL)")
+    facility:         bool           = Field(False,              description="True = facility/hospital setting; False = office/non-facility")
+    modifier:         str            = Field('',                 description="Optional CPT modifier (e.g. 25, 59, TC)")
+    payment_received: Optional[float]= Field(None,              description="Actual payment received — triggers underpayment analysis")
 
 # ─────────────────────────────────────────────────────────────
 # SHARED PIPELINE HELPERS
@@ -1422,6 +1431,53 @@ async def lookup_coverage_policy(params: CoverageLookupInput) -> str:
         cpt_code=params.cpt_code,
         state=params.state,
         payer=params.payer,
+        supabase_client=SUPABASE,
+        meta_fn=_meta,
+    )
+
+
+# ─────────────────────────────────────────────────────────────
+# TOOL 6: get_charge_capture
+# ─────────────────────────────────────────────────────────────
+
+@mcp.tool(
+    name="get_charge_capture",
+    annotations={
+        "title": "Medicare Fee Schedule & Underpayment Check",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+async def get_charge_capture(params: ChargeCaptureInput) -> str:
+    """
+    Returns the 2026 Medicare Physician Fee Schedule allowed amount for a
+    CPT code. Optionally flags underpayments when payment_received is provided.
+
+    Checks Supabase fee_schedule_cache first (25 common RCM codes seeded).
+    Falls back to CMS Data API for unlisted codes and caches the result.
+
+    Args:
+        params (ChargeCaptureInput):
+            cpt_code (str): 5-digit CPT code (e.g. 99213)
+            state (str): Two-letter state abbreviation (e.g. TX)
+            facility (bool): True = hospital/facility; False = office setting
+            modifier (str): Optional CPT modifier (e.g. 25, 59)
+            payment_received (float): Actual ERA/EOB payment — triggers
+                                      underpayment analysis if provided
+
+    Returns:
+        str: JSON with non-facility and facility allowed amounts,
+             applicable allowed amount for the setting, and underpayment
+             analysis (variance, %, action) when payment_received is given
+    """
+    return await run_charge_capture(
+        cpt_code=params.cpt_code,
+        state=params.state,
+        facility=params.facility,
+        modifier=params.modifier,
+        payment_received=params.payment_received,
         supabase_client=SUPABASE,
         meta_fn=_meta,
     )
