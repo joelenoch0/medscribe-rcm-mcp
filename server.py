@@ -579,7 +579,7 @@ def _preprocess(text: str) -> str:
 
 def _get_payer_rules(payer: str) -> Dict[str, Any]:
     """Look up payer rules; fall back to default."""
-    key = payer.upper().replace(" ", "")
+    key = payer.lower().replace(" ", "")
     return PAYER_RULES.get(key, PAYER_RULES.get("default", {}))
 
 
