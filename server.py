@@ -344,9 +344,9 @@ DOC_SUPPORT_MAP: Dict[str, Dict[str, List[str]]] = {
         "Z79.4":   ["insulin", "insulin-dependent", "insulin therapy", "basal insulin", "bolus insulin"],
         "Z79.52":  ["systemic steroid", "prednisone", "dexamethasone", "methylprednisolone", "long-term steroid"],
         "Z79.51":  ["inhaled steroid", "fluticasone", "budesonide", "inhaled corticosteroid"],
-        "Z79.82":  ["bisphosphonate", "alendronate", "zoledronic acid", "osteoporosis medication"],
-        "Z79.83":  ["aromatase inhibitor", "anastrozole", "letrozole", "exemestane"],
-        "Z79.810": ["aspirin therapy", "daily aspirin", "low-dose aspirin", "aspirin 81mg"],
+        "Z79.82":  ["aspirin", "aspirin therapy", "daily aspirin", "low-dose aspirin", "aspirin 81mg", "baby aspirin"],
+        "Z79.83":  ["bisphosphonate", "alendronate", "zoledronic acid", "risedronate", "osteoporosis medication"],
+        "Z79.811": ["aromatase inhibitor", "anastrozole", "letrozole", "exemestane"],
         "Z79.84":  ["oral contraceptive", "birth control pill", "OCP", "combined oral contraceptive"],
     },
     "M79.3": {
