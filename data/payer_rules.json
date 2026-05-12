@@ -7,7 +7,11 @@
     "ncci_blocked_pairs": [],
     "max_units": {},
     "requires_modifier_25": [],
-    "requires_modifier_59": []
+    "requires_modifier_59": [],
+    "telehealth_cpt_codes": ["90837", "90834", "90832", "90847", "90846", "99213", "99214", "99215"],
+    "telehealth_modifiers": ["GT", "95", "FQ"],
+    "mental_health_pos_cpt": ["90837", "90834", "90832", "90847", "90846", "H0004", "H0031"],
+    "mental_health_pos_modifiers": ["HO", "HN", "HM", "AH"]
   },
 
   "medicare": {
@@ -27,7 +31,11 @@
       "99213": 1
     },
     "requires_modifier_25": ["99213", "99214", "99215"],
-    "requires_modifier_59": ["97110", "97530"]
+    "requires_modifier_59": ["97110", "97530"],
+    "telehealth_cpt_codes": ["90837", "90834", "90832", "90847", "90846", "99213", "99214", "99215"],
+    "telehealth_modifiers": ["GT", "95"],
+    "mental_health_pos_cpt": ["90837", "90834", "90832", "90847", "90846"],
+    "mental_health_pos_modifiers": ["HO", "HN", "AH"]
   },
 
   "medicaid": {

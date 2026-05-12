@@ -33,10 +33,7 @@ desktop.ini
 # -------------------------
 # DATA (be specific!)
 # -------------------------
-data/
-
-
-# Allow safe JSON if needed
+data/*
 !data/*.json
 
 # -------------------------

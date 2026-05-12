@@ -1222,6 +1222,29 @@ async def validate_claim_bundle(params: ValidateClaimInput) -> str:
         if code in mod59_codes and len(params.codes) > 1:
             warnings.append(f"{code}: may require Modifier 59 when billed with other codes — verify medical necessity")
 
+    # ── Telehealth modifier check (GT / 95) ──────────────────────────────
+    telehealth_cpt  = payer_rules.get("telehealth_cpt_codes", [])
+    telehealth_mods = set(payer_rules.get("telehealth_modifiers", ["GT", "95", "FQ"]))
+    submitted_mods  = set(m.strip().upper() for m in (params.codes) if len(m) == 2 and m.isalpha())
+    for code in params.codes:
+        if code in telehealth_cpt and not submitted_mods & telehealth_mods:
+            warnings.append(
+                f"{code}: if delivered via telehealth, Modifier GT (Medicare) or 95 (commercial) is required — "
+                f"omission causes CO-4 denial"
+            )
+            break  # one warning covers all telehealth CPTs in bundle
+
+    # ── Mental health POS modifier check (HO / HN / AH) ─────────────────
+    mh_cpt  = payer_rules.get("mental_health_pos_cpt", [])
+    mh_mods = set(payer_rules.get("mental_health_pos_modifiers", ["HO", "HN", "AH"]))
+    for code in params.codes:
+        if code in mh_cpt and not submitted_mods & mh_mods:
+            warnings.append(
+                f"{code}: mental health service — verify POS modifier (HO = master level, HN = bachelor level, "
+                f"AH = clinical psychologist) matches rendering provider credentials"
+            )
+            break  # one warning covers all MH CPTs in bundle
+
     prior_auth = payer_rules.get("prior_auth_required", [])
     for code in params.codes:
         if code in prior_auth:
