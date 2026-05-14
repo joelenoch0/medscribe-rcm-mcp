@@ -1157,8 +1157,8 @@ async def suggest_codes_with_context(params: SuggestCodesInput) -> str:
     payer_warnings = _apply_payer_warnings(all_codes_in_note, payer_rules)
     text_scan = _detect_nos_nec_in_text(clean_note)
 
-    high_risk_count   = sum(1 for s in flagged_sentinels if s["denial_risk"] == "HIGH")
-    medium_risk_count = sum(1 for s in flagged_sentinels if s["denial_risk"] == "MEDIUM")
+    high_risk_count   = sum(1 for s in flagged_sentinels if s["denial_risk"] == "HIGH") + sum(1 for s in extended_flags if s["denial_risk"] == "HIGH")
+    medium_risk_count = sum(1 for s in flagged_sentinels if s["denial_risk"] == "MEDIUM") + sum(1 for s in extended_flags if s["denial_risk"] == "MEDIUM")
     text_risk_pts     = (text_scan["nos_language_count"] + text_scan["nec_language_count"]) * 5
     denial_risk_score = min(100, (high_risk_count * 25) + (medium_risk_count * 10) + text_risk_pts + len(payer_warnings) * 8)
 
