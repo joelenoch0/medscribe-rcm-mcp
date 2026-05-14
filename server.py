@@ -721,6 +721,71 @@ def _check_documentation_support(code: str, note_text: str) -> Dict[str, Any]:
             "No specific upgrade found — request provider addendum"
         ),
     }
+def _lookup_icd10_batch(codes: List[str], supabase_client) -> Dict[str, Dict]:
+    """
+    Batch query Supabase icd10_codes for a list of codes.
+    Returns dict: code -> {description, is_leaf, use_additional, excludes1}
+    Silent on failure — Tool 2 degrades gracefully without it.
+    """
+    if not supabase_client or not codes:
+        return {}
+    try:
+        resp = supabase_client.table("icd10_codes") \
+            .select("code,description,is_leaf,use_additional,excludes1") \
+            .in_("code", codes) \
+            .execute()
+        return {row["code"]: row for row in (resp.data or [])}
+    except Exception as exc:
+        log.warning("icd10_codes batch lookup failed (non-fatal): %s", exc)
+        return {}
+
+
+NOS_NEC_DESC_PATTERN = re.compile(
+    r"\b(unspecified|not otherwise specified|NOS|not elsewhere classified|NEC|"
+    r"other specified|other and unspecified|unspecified site|unspecified type)\b",
+    re.IGNORECASE,
+)
+
+
+def _flag_extended_nos_nec(
+    codes: List[str],
+    icd10_rows: Dict[str, Dict],
+    already_flagged: set,
+) -> List[Dict[str, Any]]:
+    """
+    Extend NOS/NEC detection beyond the 22 hardcoded sentinels using
+    CMS descriptions from icd10_codes Supabase table.
+    Returns list of extended flags (same shape as sentinel flags).
+    """
+    extended = []
+    for code in codes:
+        if code in already_flagged:
+            continue
+        row = icd10_rows.get(code)
+        if not row:
+            continue
+        desc = row.get("description", "")
+        if NOS_NEC_DESC_PATTERN.search(desc):
+            extended.append({
+                "code":          code,
+                "description":   desc,
+                "sentinel_type": "NOS" if "unspecified" in desc.lower() else "NEC",
+                "denial_risk":   "MEDIUM",
+                "safer_alternative": "See ICD-10-CM tabular for specificity options",
+                "source":        "icd10_cms_description",
+            })
+        elif not row.get("is_leaf"):
+            extended.append({
+                "code":          code,
+                "description":   desc,
+                "sentinel_type": "HEADER",
+                "denial_risk":   "HIGH",
+                "safer_alternative": "Code is a header category — select a billable child code",
+                "source":        "icd10_cms_description",
+            })
+    return extended
+
+
 def _detect_nos_nec_in_text(text: str) -> Dict[str, Any]:
     nos_matches = NOS_PATTERN.findall(text)
     nec_matches = NEC_PATTERN.findall(text)
@@ -1075,6 +1140,20 @@ async def suggest_codes_with_context(params: SuggestCodesInput) -> str:
         sentinel["documentation_support"] = _check_documentation_support(
             sentinel["code"], params.note_text
         )
+
+    # ── Supabase ICD-10 extended lookup ──────────────────────────────
+    icd10_rows     = _lookup_icd10_batch(icd_in_note, SUPABASE)
+    already_flagged = {s["code"] for s in flagged_sentinels}
+    extended_flags  = _flag_extended_nos_nec(icd_in_note, icd10_rows, already_flagged)
+
+    # use_additional companion code warnings from CMS data
+    use_additional_warnings = []
+    for code in icd_in_note:
+        row = icd10_rows.get(code)
+        if row and row.get("use_additional"):
+            for note in row["use_additional"]:
+                use_additional_warnings.append(f"{code}: CMS requires — {note}")
+
     payer_warnings = _apply_payer_warnings(all_codes_in_note, payer_rules)
     text_scan = _detect_nos_nec_in_text(clean_note)
 
@@ -1086,6 +1165,10 @@ async def suggest_codes_with_context(params: SuggestCodesInput) -> str:
     doc_gaps = []
     if high_risk_count > 0:
         doc_gaps.append("Replace all NOS/NEC codes with specificity-level alternatives before submission")
+    if extended_flags:
+        doc_gaps.append(f"{len(extended_flags)} additional unspecified/header code(s) detected via CMS ICD-10 lookup — review for specificity")
+    if use_additional_warnings:
+        doc_gaps.extend(use_additional_warnings)
     if text_scan["nos_language_count"] > 0:
         doc_gaps.append("Clinical note contains 'unspecified' language — request addendum from provider for specificity")
     if text_scan["nec_language_count"] > 0:
@@ -1127,7 +1210,8 @@ async def suggest_codes_with_context(params: SuggestCodesInput) -> str:
         "payer":                   params.payer,
         "codes_analyzed":          all_codes_in_note,
         "flagged_sentinel_codes":  flagged_sentinels,
-        "sentinel_count":          len(flagged_sentinels),
+        "extended_nos_nec_flags":  extended_flags,
+        "sentinel_count":          len(flagged_sentinels) + len(extended_flags),
         "optimized_code_map":      optimized_codes,
         "payer_specific_warnings": payer_warnings,
         "nos_nec_text_scan":       text_scan,
