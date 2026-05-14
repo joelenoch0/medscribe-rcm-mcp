@@ -35,6 +35,7 @@ desktop.ini
 # -------------------------
 data/*
 !data/*.json
+!data/*.xml
 
 # -------------------------
 *_backup.py
