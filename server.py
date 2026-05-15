@@ -1052,20 +1052,34 @@ def _search_icd10_by_description(noun_phrases: List[str], supabase_client) -> Li
 def _extract_noun_phrases(text: str) -> List[str]:
     """
     Extract 1–4 word clinical noun phrases from prose for description search.
-    Single words allowed when len >= 6 chars (filters stop words like 'the', 'and').
+    Single words allowed only when >= 8 chars AND not a clinical modifier/adjective.
     Uses spaCy noun chunks when available; falls back to bigram/trigram + long unigrams.
     """
+    # Modifiers/adjectives that are too broad to drive standalone ilike queries
+    PROSE_QUERY_STOPWORDS = {
+        "left", "right", "bilateral", "peripheral", "chronic", "acute", "subacute",
+        "severe", "mild", "moderate", "unspecified", "multiple", "primary", "secondary",
+        "upper", "lower", "anterior", "posterior", "lateral", "medial", "distal",
+        "proximal", "central", "general", "generalized", "systemic", "local",
+        "patient", "presents", "history", "diagnosis", "treatment", "clinical",
+    }
+    def _keep(phrase: str) -> bool:
+        words = phrase.split()
+        if len(words) == 1:
+            # single word: must be >= 8 chars and not a stopword
+            return len(phrase) >= 8 and phrase not in PROSE_QUERY_STOPWORDS
+        return len(words) <= 4
+
     if NLP:
         doc = NLP(text)
         phrases = [
             chunk.text.lower() for chunk in doc.noun_chunks
-            if (len(chunk.text.split()) >= 2 or len(chunk.text) >= 6)
-            and len(chunk.text.split()) <= 4
+            if _keep(chunk.text.lower())
         ]
-        return list(dict.fromkeys(phrases))[:12]  # dedupe, cap at 12
-    # fallback: bigrams + trigrams + long single words
+        return list(dict.fromkeys(phrases))[:12]
+    # fallback: bigrams + trigrams + long single nouns
     words = text.lower().split()
-    phrases = [w for w in words if len(w) >= 6]  # long unigrams
+    phrases = [w for w in words if _keep(w)]
     for n in (2, 3):
         for i in range(len(words) - n + 1):
             phrases.append(" ".join(words[i:i + n]))
