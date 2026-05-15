@@ -1086,6 +1086,42 @@ def _extract_noun_phrases(text: str) -> List[str]:
     return list(dict.fromkeys(phrases))[:12]
 
 
+# ICD-10 chapter-level plausibility guards for prose extraction.
+# Keys are code prefixes; values are terms that MUST appear in prose
+# for codes in that chapter to be included. Chapters not listed are
+# always considered plausible (conservative: only guard high-FP chapters).
+CHAPTER_GUARD: Dict[str, List[str]] = {
+    # H00–H59: Diseases of the eye and adnexa
+    "H0": ["eye", "vision", "ocular", "orbit", "retina", "cornea",
+            "glaucoma", "cataract", "optic", "visual", "conjunctiv",
+            "eyelid", "lacrimal", "pupil", "lens"],
+    # H60–H95: Diseases of the ear
+    "H6": ["ear", "hearing", "tinnitus", "vertigo", "otitis",
+            "auditory", "cochlea", "vestibular", "mastoid"],
+    "H7": ["ear", "hearing", "tinnitus", "vertigo", "otitis",
+            "auditory", "cochlea", "vestibular", "mastoid"],
+    "H8": ["ear", "hearing", "tinnitus", "vertigo", "otitis",
+            "auditory", "cochlea", "vestibular", "mastoid"],
+    "H9": ["ear", "hearing", "tinnitus", "vertigo", "otitis",
+            "auditory", "cochlea", "vestibular", "mastoid"],
+    # O: Pregnancy, childbirth
+    "O":  ["pregnan", "obstetric", "gestation", "trimester",
+            "antepartum", "postpartum", "labor", "delivery", "maternal"],
+    # P: Perinatal conditions
+    "P":  ["newborn", "neonate", "perinatal", "birth", "infant"],
+    # Q: Congenital malformations
+    "Q":  ["congenital", "malformation", "anomaly", "chromosom", "syndrome"],
+}
+
+
+def _is_chapter_plausible(code: str, text_lower: str) -> bool:
+    """Return False if code's chapter requires trigger terms absent from prose."""
+    for prefix, triggers in CHAPTER_GUARD.items():
+        if code.upper().startswith(prefix):
+            return any(t in text_lower for t in triggers)
+    return True
+
+
 def _extract_codes_from_prose(text: str, supabase_client=None) -> Tuple[List[str], str]:
     """
     Stage 3: extract candidate ICD-10 codes from pure clinical prose.
@@ -1110,7 +1146,7 @@ def _extract_codes_from_prose(text: str, supabase_client=None) -> Tuple[List[str
         phrases = _extract_noun_phrases(text)
         extended = _search_icd10_by_description(phrases, supabase_client)
         for code in extended:
-            if code not in seen:
+            if code not in seen and _is_chapter_plausible(code, text_lower):
                 found.append(code)
                 seen.add(code)
 
