@@ -327,6 +327,14 @@ PROSE_TO_CODE_MAP: List[Tuple[str, str]] = [
     # Long-term medication use
     ("long-term medication",          "Z79.899"),
     ("chronic medication",            "Z79.899"),
+    # Wound care / diabetic foot
+    ("diabetic foot ulcer",           "E11.621"),
+    ("diabetic foot",                 "E11.621"),
+    ("foot ulcer",                    "L97.509"),
+    ("heel ulcer",                    "L97.419"),
+    ("pressure ulcer",                "L89.90"),
+    ("osteomyelitis",                 "M86.9"),
+    ("wound infection",               "L08.9"),
 ]
 
 # Regex patterns to catch NOS/NEC language in free text
@@ -893,20 +901,25 @@ def _search_icd10_by_description(noun_phrases: List[str], supabase_client) -> Li
 
 def _extract_noun_phrases(text: str) -> List[str]:
     """
-    Extract 2–4 word clinical noun phrases from prose for description search.
-    Uses spaCy noun chunks when available; falls back to simple bigram/trigram.
+    Extract 1–4 word clinical noun phrases from prose for description search.
+    Single words allowed when len >= 6 chars (filters stop words like 'the', 'and').
+    Uses spaCy noun chunks when available; falls back to bigram/trigram + long unigrams.
     """
     if NLP:
         doc = NLP(text)
-        phrases = [chunk.text.lower() for chunk in doc.noun_chunks if 2 <= len(chunk.text.split()) <= 4]
-        return list(dict.fromkeys(phrases))[:10]  # dedupe, cap at 10
-    # fallback: sliding window bigrams + trigrams
+        phrases = [
+            chunk.text.lower() for chunk in doc.noun_chunks
+            if (len(chunk.text.split()) >= 2 or len(chunk.text) >= 6)
+            and len(chunk.text.split()) <= 4
+        ]
+        return list(dict.fromkeys(phrases))[:12]  # dedupe, cap at 12
+    # fallback: bigrams + trigrams + long single words
     words = text.lower().split()
-    phrases = []
+    phrases = [w for w in words if len(w) >= 6]  # long unigrams
     for n in (2, 3):
         for i in range(len(words) - n + 1):
             phrases.append(" ".join(words[i:i + n]))
-    return list(dict.fromkeys(phrases))[:10]
+    return list(dict.fromkeys(phrases))[:12]
 
 
 def _extract_codes_from_prose(text: str, supabase_client=None) -> Tuple[List[str], str]:
