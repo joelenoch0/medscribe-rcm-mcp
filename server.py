@@ -854,21 +854,94 @@ def _flag_extended_nos_nec(
     return extended
 
 
-def _extract_codes_from_prose(text: str) -> List[str]:
+def _search_icd10_by_description(noun_phrases: List[str], supabase_client) -> List[str]:
     """
-    Stage 3 MVP: extract candidate sentinel ICD-10 codes from pure clinical prose.
-    Called when note_text contains no explicit ICD-10 code tokens.
-    Matches longest/most-specific keywords first to minimise false positives.
-    Returns deduplicated ordered list of candidate codes.
+    Second-pass prose extraction: search icd10_codes table by description.
+    Fires ilike queries for each noun phrase, returns billable (is_leaf) codes only.
+    Uses concurrent.futures to stay synchronous — same pattern as _verify_consent.
+    Silent on failure; keyword-map results are always returned regardless.
     """
-    text_lower = text.lower()
+    if not supabase_client or not noun_phrases:
+        return []
     found: List[str] = []
     seen: set = set()
+    try:
+        import concurrent.futures
+        def _query(phrase: str):
+            return supabase_client.table("icd10_codes") \
+                .select("code") \
+                .ilike("description", f"%{phrase}%") \
+                .eq("is_leaf", True) \
+                .limit(3) \
+                .execute()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            futures = {pool.submit(_query, p): p for p in noun_phrases}
+            for future in concurrent.futures.as_completed(futures, timeout=3):
+                try:
+                    rows = future.result().data or []
+                    for row in rows:
+                        code = row["code"]
+                        if code not in seen:
+                            found.append(code)
+                            seen.add(code)
+                except Exception:
+                    pass
+    except Exception as exc:
+        log.warning("icd10 description search failed (non-fatal): %s", exc)
+    return found
+
+
+def _extract_noun_phrases(text: str) -> List[str]:
+    """
+    Extract 2–4 word clinical noun phrases from prose for description search.
+    Uses spaCy noun chunks when available; falls back to simple bigram/trigram.
+    """
+    if NLP:
+        doc = NLP(text)
+        phrases = [chunk.text.lower() for chunk in doc.noun_chunks if 2 <= len(chunk.text.split()) <= 4]
+        return list(dict.fromkeys(phrases))[:10]  # dedupe, cap at 10
+    # fallback: sliding window bigrams + trigrams
+    words = text.lower().split()
+    phrases = []
+    for n in (2, 3):
+        for i in range(len(words) - n + 1):
+            phrases.append(" ".join(words[i:i + n]))
+    return list(dict.fromkeys(phrases))[:10]
+
+
+def _extract_codes_from_prose(text: str, supabase_client=None) -> Tuple[List[str], str]:
+    """
+    Stage 3: extract candidate ICD-10 codes from pure clinical prose.
+    Pass 1 — keyword map (PROSE_TO_CODE_MAP): fast, offline, sentinel-scoped.
+    Pass 2 — Supabase description search: covers full 46,881-code CMS table.
+    Returns (codes, input_mode) so Tool 2 can surface which path fired.
+    """
+    text_lower = text.lower()
+    seen: set = set()
+    found: List[str] = []
+
+    # Pass 1: keyword map
     for keyword, code in sorted(PROSE_TO_CODE_MAP, key=lambda x: len(x[0]), reverse=True):
         if keyword.lower() in text_lower and code not in seen:
             found.append(code)
             seen.add(code)
-    return found
+
+    keyword_count = len(found)
+
+    # Pass 2: Supabase description search (extended)
+    if supabase_client:
+        phrases = _extract_noun_phrases(text)
+        extended = _search_icd10_by_description(phrases, supabase_client)
+        for code in extended:
+            if code not in seen:
+                found.append(code)
+                seen.add(code)
+
+    if not found:
+        return [], "explicit_codes"
+    extended_fired = len(found) > keyword_count
+    mode = "prose_extraction_extended" if extended_fired else "prose_extraction"
+    return found, mode
 
 
 def _detect_nos_nec_in_text(text: str) -> Dict[str, Any]:
@@ -1223,11 +1296,10 @@ async def suggest_codes_with_context(params: SuggestCodesInput) -> str:
     # ── Stage 3: prose fallback — fires only when no ICD codes found explicitly
     input_mode = "explicit_codes"
     if not icd_in_note:
-        icd_in_note = _extract_codes_from_prose(clean_note)
+        icd_in_note, input_mode = _extract_codes_from_prose(clean_note, SUPABASE)
         all_codes_in_note = icd_in_note + cpt_in_note
         if icd_in_note:
-            input_mode = "prose_extraction"
-            log.info("Stage 3 prose extraction: found %d candidate code(s): %s", len(icd_in_note), icd_in_note)
+            log.info("Stage 3 prose extraction (%s): found %d candidate code(s): %s", input_mode, len(icd_in_note), icd_in_note)
 
     flagged_sentinels = _check_sentinel_codes(icd_in_note)
     for sentinel in flagged_sentinels:
