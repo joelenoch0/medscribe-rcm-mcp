@@ -827,12 +827,25 @@ def _flag_extended_nos_nec(
     codes: List[str],
     icd10_rows: Dict[str, Dict],
     already_flagged: set,
+    supabase_client=None,
 ) -> List[Dict[str, Any]]:
     """
     Extend NOS/NEC detection beyond the 22 hardcoded sentinels using
     CMS descriptions from icd10_codes Supabase table.
     Returns list of extended flags (same shape as sentinel flags).
     """
+    # Identify all codes that will be flagged, then batch-fetch alternatives
+    flaggable = [
+        code for code in codes
+        if code not in already_flagged
+        and icd10_rows.get(code)
+        and (
+            NOS_NEC_DESC_PATTERN.search(icd10_rows[code].get("description", ""))
+            or not icd10_rows[code].get("is_leaf")
+        )
+    ]
+    alternatives = _find_safer_alternatives_batch(flaggable, supabase_client)
+
     extended = []
     for code in codes:
         if code in already_flagged:
@@ -841,13 +854,14 @@ def _flag_extended_nos_nec(
         if not row:
             continue
         desc = row.get("description", "")
+        safer = alternatives.get(code, "See ICD-10-CM tabular for specificity options")
         if NOS_NEC_DESC_PATTERN.search(desc):
             extended.append({
                 "code":          code,
                 "description":   desc,
                 "sentinel_type": "NOS" if "unspecified" in desc.lower() else "NEC",
                 "denial_risk":   "MEDIUM",
-                "safer_alternative": "See ICD-10-CM tabular for specificity options",
+                "safer_alternative": safer,
                 "source":        "icd10_cms_description",
             })
         elif not row.get("is_leaf"):
@@ -856,10 +870,46 @@ def _flag_extended_nos_nec(
                 "description":   desc,
                 "sentinel_type": "HEADER",
                 "denial_risk":   "HIGH",
-                "safer_alternative": "Code is a header category — select a billable child code",
+                "safer_alternative": safer if safer != "See ICD-10-CM tabular for specificity options" else "Code is a header category — select a billable child code",
                 "source":        "icd10_cms_description",
             })
     return extended
+
+
+def _find_safer_alternatives_batch(codes: List[str], supabase_client) -> Dict[str, str]:
+    """
+    For each NOS/NEC code, find more specific leaf codes in the same 3-char category.
+    Fires parallel Supabase queries (one per code), returns {code: safer_alternative_string}.
+    Silent on failure — falls back to generic message per code.
+    """
+    result: Dict[str, str] = {}
+    if not supabase_client or not codes:
+        return result
+    try:
+        import concurrent.futures
+        def _query(code: str):
+            prefix = code[:3]
+            return code, supabase_client.table("icd10_codes") \
+                .select("code") \
+                .like("code", f"{prefix}.%") \
+                .eq("is_leaf", True) \
+                .neq("code", code) \
+                .limit(4) \
+                .execute()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(codes), 4)) as pool:
+            futures = {pool.submit(_query, c): c for c in codes}
+            for future in concurrent.futures.as_completed(futures, timeout=3):
+                try:
+                    code, resp = future.result()
+                    rows = resp.data or []
+                    if rows:
+                        examples = ", ".join(r["code"] for r in rows[:3])
+                        result[code] = f"More specific alternatives: {examples}"
+                except Exception:
+                    pass
+    except Exception as exc:
+        log.warning("safer_alternatives batch lookup failed (non-fatal): %s", exc)
+    return result
 
 
 def _search_icd10_by_description(noun_phrases: List[str], supabase_client) -> List[str]:
@@ -876,9 +926,12 @@ def _search_icd10_by_description(noun_phrases: List[str], supabase_client) -> Li
     try:
         import concurrent.futures
         def _query(phrase: str):
+            # Starts-with match: prioritises codes where phrase is the primary concept
+            # (e.g. 'Osteomyelitis, unspecified') over compound modifiers
+            # (e.g. 'Typhoid osteomyelitis', 'Gonococcal osteomyelitis')
             return supabase_client.table("icd10_codes") \
                 .select("code") \
-                .ilike("description", f"%{phrase}%") \
+                .ilike("description", f"{phrase}%") \
                 .eq("is_leaf", True) \
                 .limit(3) \
                 .execute()
@@ -1323,7 +1376,7 @@ async def suggest_codes_with_context(params: SuggestCodesInput) -> str:
     # ── Supabase ICD-10 extended lookup ──────────────────────────────
     icd10_rows     = _lookup_icd10_batch(icd_in_note, SUPABASE)
     already_flagged = {s["code"] for s in flagged_sentinels}
-    extended_flags  = _flag_extended_nos_nec(icd_in_note, icd10_rows, already_flagged)
+    extended_flags  = _flag_extended_nos_nec(icd_in_note, icd10_rows, already_flagged, SUPABASE)
 
     # use_additional companion code warnings from CMS data
     use_additional_warnings = []
