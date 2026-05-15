@@ -337,6 +337,50 @@ PROSE_TO_CODE_MAP: List[Tuple[str, str]] = [
     ("wound infection",               "L08.9"),
 ]
 
+# ─────────────────────────────────────────────────────────────
+# STAGE 3: CLINICAL ENTITY MAP
+# Rule-based extraction of laterality, site, chronicity, severity
+# from prose — used to filter Supabase safer_alternative queries
+# so results are site/laterality-specific rather than generic siblings.
+# ─────────────────────────────────────────────────────────────
+CLINICAL_ENTITY_MAP: Dict[str, Dict[str, str]] = {
+    "laterality": {
+        "left":      "left",
+        "right":     "right",
+        "bilateral": "bilateral",
+    },
+    "site": {
+        "heel":     "heel",
+        "ankle":    "ankle",
+        "foot":     "foot",
+        "toe":      "toe",
+        "knee":     "knee",
+        "shoulder": "shoulder",
+        "wrist":    "wrist",
+        "hand":     "hand",
+        "finger":   "finger",
+        "elbow":    "elbow",
+        "thigh":    "thigh",
+        "sacrum":   "sacrum",
+        "sacral":   "sacrum",
+        "coccyx":   "coccyx",
+        "hip":      "hip",
+        "lumbar":   "lumbar",
+        "cervical": "cervical",
+        "plantar":  "plantar",
+    },
+    "chronicity": {
+        "acute":    "acute",
+        "chronic":  "chronic",
+        "subacute": "subacute",
+    },
+    "severity": {
+        "mild":     "mild",
+        "moderate": "moderate",
+        "severe":   "severe",
+    },
+}
+
 # Regex patterns to catch NOS/NEC language in free text
 NOS_PATTERN = re.compile(
     r"\b(unspecified|NOS|not otherwise specified|unknown etiology|nonspecific)\b",
@@ -828,6 +872,7 @@ def _flag_extended_nos_nec(
     icd10_rows: Dict[str, Dict],
     already_flagged: set,
     supabase_client=None,
+    prose_text: str = "",
 ) -> List[Dict[str, Any]]:
     """
     Extend NOS/NEC detection beyond the 22 hardcoded sentinels using
@@ -844,7 +889,7 @@ def _flag_extended_nos_nec(
             or not icd10_rows[code].get("is_leaf")
         )
     ]
-    alternatives = _find_safer_alternatives_batch(flaggable, supabase_client)
+    alternatives = _find_safer_alternatives_batch(flaggable, supabase_client, prose_text)
 
     extended = []
     for code in codes:
@@ -876,26 +921,78 @@ def _flag_extended_nos_nec(
     return extended
 
 
-def _find_safer_alternatives_batch(codes: List[str], supabase_client) -> Dict[str, str]:
+def _extract_clinical_entities(text: str) -> Dict[str, Any]:
     """
-    For each NOS/NEC code, find more specific leaf codes in the same 3-char category.
-    Fires parallel Supabase queries (one per code), returns {code: safer_alternative_string}.
-    Silent on failure — falls back to generic message per code.
+    Rule-based NLP entity extraction from clinical prose.
+    Extracts laterality, anatomical site, chronicity, severity.
+    Returns description_fragments list used to filter Supabase queries.
+    """
+    text_lower = text.lower()
+    entities: Dict[str, Any] = {
+        "laterality":            None,
+        "sites":                 [],
+        "chronicity":            None,
+        "severity":              None,
+        "description_fragments": [],
+    }
+    for kw, frag in CLINICAL_ENTITY_MAP["laterality"].items():
+        if kw in text_lower:
+            entities["laterality"] = frag
+            entities["description_fragments"].append(frag)
+            break
+    for kw, frag in CLINICAL_ENTITY_MAP["site"].items():
+        if kw in text_lower and frag not in entities["sites"]:
+            entities["sites"].append(frag)
+            if frag not in entities["description_fragments"]:
+                entities["description_fragments"].append(frag)
+    for kw, frag in CLINICAL_ENTITY_MAP["chronicity"].items():
+        if kw in text_lower:
+            entities["chronicity"] = frag
+            entities["description_fragments"].append(frag)
+            break
+    for kw, frag in CLINICAL_ENTITY_MAP["severity"].items():
+        if kw in text_lower:
+            entities["severity"] = frag
+            entities["description_fragments"].append(frag)
+            break
+    return entities
+
+
+def _find_safer_alternatives_batch(
+    codes: List[str],
+    supabase_client,
+    prose_text: str = "",
+) -> Dict[str, str]:
+    """
+    For each NOS/NEC code, find site/laterality-specific leaf codes in the same
+    3-char category using clinical entity filters extracted from prose.
+    Falls back to unfiltered category siblings if entity query returns nothing.
+    Silent on failure — always returns generic fallback string.
     """
     result: Dict[str, str] = {}
     if not supabase_client or not codes:
         return result
+    entities = _extract_clinical_entities(prose_text) if prose_text else {"description_fragments": []}
+    fragments = entities["description_fragments"]
     try:
         import concurrent.futures
         def _query(code: str):
             prefix = code[:3]
-            return code, supabase_client.table("icd10_codes") \
-                .select("code") \
-                .like("code", f"{prefix}.%") \
-                .eq("is_leaf", True) \
-                .neq("code", code) \
-                .limit(4) \
-                .execute()
+            def _build_query(use_fragments: bool):
+                q = supabase_client.table("icd10_codes") \
+                    .select("code") \
+                    .like("code", f"{prefix}.%") \
+                    .eq("is_leaf", True) \
+                    .neq("code", code)
+                if use_fragments:
+                    for frag in fragments:
+                        q = q.ilike("description", f"%{frag}%")
+                return q.limit(4).execute()
+            # Try entity-filtered first; fall back to unfiltered
+            resp = _build_query(use_fragments=bool(fragments))
+            if not (resp.data or []) and fragments:
+                resp = _build_query(use_fragments=False)
+            return code, resp
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(codes), 4)) as pool:
             futures = {pool.submit(_query, c): c for c in codes}
             for future in concurrent.futures.as_completed(futures, timeout=3):
@@ -1376,7 +1473,7 @@ async def suggest_codes_with_context(params: SuggestCodesInput) -> str:
     # ── Supabase ICD-10 extended lookup ──────────────────────────────
     icd10_rows     = _lookup_icd10_batch(icd_in_note, SUPABASE)
     already_flagged = {s["code"] for s in flagged_sentinels}
-    extended_flags  = _flag_extended_nos_nec(icd_in_note, icd10_rows, already_flagged, SUPABASE)
+    extended_flags  = _flag_extended_nos_nec(icd_in_note, icd10_rows, already_flagged, SUPABASE, clean_note)
 
     # use_additional companion code warnings from CMS data
     use_additional_warnings = []
