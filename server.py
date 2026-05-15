@@ -972,7 +972,7 @@ def _find_safer_alternatives_batch(
     result: Dict[str, str] = {}
     if not supabase_client or not codes:
         return result
-    entities = _extract_clinical_entities(prose_text) if prose_text else {"description_fragments": []}
+    entities = _extract_clinical_entities(prose_text) if prose_text else {"description_fragments": [], "chronicity": None, "laterality": None, "sites": []}
     fragments = entities["description_fragments"]
     try:
         import concurrent.futures
@@ -990,18 +990,30 @@ def _find_safer_alternatives_batch(
                 return q.limit(4).execute()
             # Try entity-filtered first; fall back to unfiltered
             resp = _build_query(use_fragments=bool(fragments))
+            used_fallback = False
             if not (resp.data or []) and fragments:
                 resp = _build_query(use_fragments=False)
-            return code, resp
+                used_fallback = True
+            return code, resp, used_fallback
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(codes), 4)) as pool:
             futures = {pool.submit(_query, c): c for c in codes}
             for future in concurrent.futures.as_completed(futures, timeout=3):
                 try:
-                    code, resp = future.result()
+                    code, resp, used_fallback = future.result()
                     rows = resp.data or []
                     if rows:
                         examples = ", ".join(r["code"] for r in rows[:3])
-                        result[code] = f"More specific alternatives: {examples}"
+                        if used_fallback and fragments:
+                            # Entity filter couldn't narrow — append clinical context hint
+                            if not entities.get("chronicity"):
+                                suffix = " — specify acute vs chronic to narrow"
+                            elif not entities.get("laterality"):
+                                suffix = " — specify laterality (left/right) to narrow"
+                            else:
+                                suffix = " — review for site specificity"
+                            result[code] = f"More specific alternatives: {examples}{suffix}"
+                        else:
+                            result[code] = f"More specific alternatives: {examples}"
                 except Exception:
                     pass
     except Exception as exc:
