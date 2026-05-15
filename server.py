@@ -261,6 +261,74 @@ NEC_SENTINEL_CODES: Dict[str, Dict[str, str]] = {
 
 ALL_SENTINELS: Dict[str, Dict[str, str]] = {**NOS_SENTINEL_CODES, **NEC_SENTINEL_CODES}
 
+# ─────────────────────────────────────────────────────────────
+# STAGE 3: PROSE-TO-CODE MAP  ← condition keywords → sentinel ICD codes
+# Used when note_text contains no explicit ICD codes (pure prose input).
+# Maps longest/most-specific keyword first to avoid false matches.
+# ─────────────────────────────────────────────────────────────
+PROSE_TO_CODE_MAP: List[Tuple[str, str]] = [
+    # Low back pain
+    ("low back pain",                  "M54.50"),
+    ("lumbar pain",                    "M54.50"),
+    ("lumbago",                        "M54.50"),
+    ("low back",                       "M54.50"),
+    # Type 2 diabetes
+    ("type 2 diabetes",               "E11.9"),
+    ("type ii diabetes",              "E11.9"),
+    ("t2dm",                           "E11.9"),
+    ("diabetes mellitus",             "E11.9"),
+    ("diabetic",                       "E11.9"),
+    # Anxiety
+    ("anxiety disorder",              "F41.9"),
+    ("anxiety",                        "F41.9"),
+    # Depression / MDD
+    ("major depressive disorder",     "F32.9"),
+    ("major depressive",              "F32.9"),
+    ("depression",                     "F32.9"),
+    ("mdd",                            "F32.9"),
+    # Abdominal pain
+    ("abdominal pain",                "R10.9"),
+    # Upper respiratory infection
+    ("upper respiratory infection",   "J06.9"),
+    ("upper respiratory",             "J06.9"),
+    ("uri",                            "J06.9"),
+    # Headache
+    ("cephalgia",                      "R51.9"),
+    ("headache",                       "R51.9"),
+    # Constipation
+    ("constipation",                   "K59.00"),
+    # GERD / reflux
+    ("gastroesophageal reflux",       "K21.9"),
+    ("acid reflux",                    "K21.9"),
+    ("gerd",                           "K21.9"),
+    ("reflux",                         "K21.9"),
+    # Hypertension
+    ("high blood pressure",           "I10"),
+    ("hypertension",                   "I10"),
+    ("htn",                            "I10"),
+    # Chronic pain
+    ("chronic pain",                   "G89.29"),
+    # Pain NOS
+    ("pain, unspecified",             "G89.9"),
+    # Soft tissue disorder / myalgia
+    ("fibromyalgia",                   "M79.9"),
+    ("myalgia",                        "M79.9"),
+    ("soft tissue disorder",          "M79.9"),
+    # Respiratory disorder
+    ("respiratory disorder",          "J98.9"),
+    # Rheumatoid arthritis
+    ("rheumatoid arthritis",          "M06.9"),
+    # Skin / subcutaneous disorder
+    ("skin disorder",                  "L98.9"),
+    # Cognitive symptoms
+    ("cognitive symptoms",            "R41.89"),
+    ("memory problems",               "R41.89"),
+    ("memory loss",                   "R41.89"),
+    # Long-term medication use
+    ("long-term medication",          "Z79.899"),
+    ("chronic medication",            "Z79.899"),
+]
+
 # Regex patterns to catch NOS/NEC language in free text
 NOS_PATTERN = re.compile(
     r"\b(unspecified|NOS|not otherwise specified|unknown etiology|nonspecific)\b",
@@ -468,7 +536,7 @@ class ExtractCodesInput(BaseModel):
 
 class SuggestCodesInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-    note_text: str  = Field(..., min_length=10, description="Clinical note text after extraction")
+    note_text: str  = Field(..., min_length=10, description="Clinical note (prose or explicit code list) — Stage 3 auto-detects prose when no ICD codes are present")
     payer:     str  = Field(..., min_length=2,  description="Payer name (BCBS, MEDICARE, MEDICAID, AETNA, UNITED, or default)")
     compact:   bool = Field(False,              description="Return minimal response for chaining")
 
@@ -784,6 +852,23 @@ def _flag_extended_nos_nec(
                 "source":        "icd10_cms_description",
             })
     return extended
+
+
+def _extract_codes_from_prose(text: str) -> List[str]:
+    """
+    Stage 3 MVP: extract candidate sentinel ICD-10 codes from pure clinical prose.
+    Called when note_text contains no explicit ICD-10 code tokens.
+    Matches longest/most-specific keywords first to minimise false positives.
+    Returns deduplicated ordered list of candidate codes.
+    """
+    text_lower = text.lower()
+    found: List[str] = []
+    seen: set = set()
+    for keyword, code in sorted(PROSE_TO_CODE_MAP, key=lambda x: len(x[0]), reverse=True):
+        if keyword.lower() in text_lower and code not in seen:
+            found.append(code)
+            seen.add(code)
+    return found
 
 
 def _detect_nos_nec_in_text(text: str) -> Dict[str, Any]:
@@ -1135,6 +1220,15 @@ async def suggest_codes_with_context(params: SuggestCodesInput) -> str:
     ))
     all_codes_in_note = icd_in_note + cpt_in_note
 
+    # ── Stage 3: prose fallback — fires only when no ICD codes found explicitly
+    input_mode = "explicit_codes"
+    if not icd_in_note:
+        icd_in_note = _extract_codes_from_prose(clean_note)
+        all_codes_in_note = icd_in_note + cpt_in_note
+        if icd_in_note:
+            input_mode = "prose_extraction"
+            log.info("Stage 3 prose extraction: found %d candidate code(s): %s", len(icd_in_note), icd_in_note)
+
     flagged_sentinels = _check_sentinel_codes(icd_in_note)
     for sentinel in flagged_sentinels:
         sentinel["documentation_support"] = _check_documentation_support(
@@ -1203,6 +1297,7 @@ async def suggest_codes_with_context(params: SuggestCodesInput) -> str:
             "optimized_codes":  optimized_codes,
             "denial_risk_score": denial_risk_score,
             "flagged_count":    len(flagged_sentinels),
+            "input_mode":       input_mode,
             "meta":             {"trace_id": meta["trace_id"]},
         })
 
@@ -1220,6 +1315,7 @@ async def suggest_codes_with_context(params: SuggestCodesInput) -> str:
         "documentation_gaps":      doc_gaps,
         "part2_notice":            part2_notice,
         "payer_rules_applied":     {k: v for k, v in payer_rules.items() if k not in ("ncci_blocked_pairs",)},
+        "input_mode":              input_mode,
         "next_step":               "Pass optimized codes to validate_claim_bundle",
         "meta":                    meta,
     }, indent=2)
