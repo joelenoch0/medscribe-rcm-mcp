@@ -599,6 +599,7 @@ class ValidateClaimInput(BaseModel):
     dos:     str       = Field(..., description="Date of service — YYYY-MM-DD format")
     units:   int       = Field(..., ge=1, le=99,  description="Number of units billed")
     compact: bool      = Field(False,             description="Return minimal response for chaining")
+    pos:     str       = Field('',                description="Place of Service code (e.g. 11=office, 21=inpatient, 22=outpatient hospital)")
 
     @field_validator("dos")
     @classmethod
@@ -1721,6 +1722,20 @@ async def validate_claim_bundle(params: ValidateClaimInput) -> str:
                 f"AH = clinical psychologist) matches rendering provider credentials"
             )
             break  # one warning covers all MH CPTs in bundle
+
+    # ── POS/CPT mismatch check — inpatient CPT billed at office POS ────────
+    # 99231/99232/99233 = Subsequent Hospital Care (POS 21/22/23 only)
+    # Billing these at POS 11 (office) triggers CO-4 authorization scope denial
+    INPATIENT_CARE_CPTS = {"99231", "99232", "99233"}
+    INPATIENT_POS       = {"21", "22", "23"}  # inpatient hospital, ICU, on-campus
+    if params.pos and params.pos not in INPATIENT_POS:
+        for code in params.codes:
+            if code in INPATIENT_CARE_CPTS:
+                errors.append(
+                    f"{code}: Subsequent Hospital Care CPT requires inpatient POS (21/22/23) — "
+                    f"POS {params.pos} (office/outpatient) will trigger CO-4 denial. "
+                    f"Verify setting of care before submission."
+                )
 
     prior_auth = payer_rules.get("prior_auth_required", [])
     for code in params.codes:
